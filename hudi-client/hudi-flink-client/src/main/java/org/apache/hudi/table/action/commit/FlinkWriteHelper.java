@@ -64,12 +64,14 @@ public class FlinkWriteHelper<T extends HoodieRecordPayload, R> extends Abstract
   @Override
   public HoodieWriteMetadata<List<WriteStatus>> write(String instantTime, List<HoodieRecord<T>> inputRecords, HoodieEngineContext context,
                                                       HoodieTable<T, List<HoodieRecord<T>>, List<HoodieKey>, List<WriteStatus>> table, boolean shouldCombine, int shuffleParallelism,
-                                                      BaseCommitActionExecutor<T, List<HoodieRecord<T>>, List<HoodieKey>, List<WriteStatus>, R> executor, boolean performTagging) {
+                                                      BaseCommitActionExecutor<T, List<HoodieRecord<T>>, List<HoodieKey>, List<WriteStatus>, R> executor,
+                                                      boolean performTagging) {
     try {
       Instant lookupBegin = Instant.now();
       Duration indexLookupDuration = Duration.between(lookupBegin, Instant.now());
 
       HoodieWriteMetadata<List<WriteStatus>> result = executor.execute(inputRecords);
+
       result.setIndexLookupDuration(indexLookupDuration);
       return result;
     } catch (Throwable e) {
@@ -89,6 +91,7 @@ public class FlinkWriteHelper<T extends HoodieRecordPayload, R> extends Abstract
   @Override
   public List<HoodieRecord<T>> deduplicateRecords(
       List<HoodieRecord<T>> records, HoodieIndex<T, ?, ?, ?> index, int parallelism) {
+    //  按RecordKey 将记录分组
     Map<Object, List<Pair<Object, HoodieRecord<T>>>> keyedRecords = records.stream().map(record -> {
       // If index used is global, then records are expected to differ in their partitionPath
       final Object key = record.getKey().getRecordKey();
@@ -99,6 +102,7 @@ public class FlinkWriteHelper<T extends HoodieRecordPayload, R> extends Abstract
       final T data1 = rec1.getData();
       final T data2 = rec2.getData();
 
+      // 按order字段排序选择最新的
       @SuppressWarnings("unchecked") final T reducedData = (T) data2.preCombine(data1);
       // we cannot allow the user to change the key or partitionPath, since that will affect
       // everything

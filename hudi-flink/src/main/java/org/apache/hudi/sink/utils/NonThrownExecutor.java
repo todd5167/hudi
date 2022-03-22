@@ -110,8 +110,10 @@ public class NonThrownExecutor implements AutoCloseable {
   public void close() throws Exception {
     if (executor != null) {
       if (waitForTasksFinish) {
+        logger.info("-----------executor will shutdown...........");
         executor.shutdown();
       } else {
+        logger.info("-----------executor will shutdownNow...........");
         executor.shutdownNow();
       }
       // We do not expect this to actually block for long. At this point, there should

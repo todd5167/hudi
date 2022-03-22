@@ -55,15 +55,20 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
+ *    该执行器所消费的所有记录都应带有桶 ID 标记，并且属于一个数据桶。
  * With {@code org.apache.hudi.operator.partitioner.BucketAssigner}, each hoodie record
  * is tagged with a bucket ID (partition path + fileID) in streaming way. All the records consumed by this
  * executor should be tagged with bucket IDs and belong to one data bucket.
+ *
+ *    这些桶 ID 使得可以先通过桶 ID 对记录进行shuffle（参见 org.apache.hudi.operator.partitioner.BucketAssignerFunction），
+ *  并且该执行器一次只需要处理属于一个数据桶的数据缓冲区一次 . 所以没有必要对缓冲区进行分区。
  *
  * <p>These bucket IDs make it possible to shuffle the records first by the bucket ID
  * (see org.apache.hudi.operator.partitioner.BucketAssignerFunction), and this executor
  * only needs to handle the data buffer that belongs to one data bucket once at a time. So there is no need to
  * partition the buffer.
  *
+ *    一次计算记录批次位置对引擎来说是一种压力，我们应该避免在流式系统中出现这种情况。
  * <p>Computing the records batch locations all at a time is a pressure to the engine,
  * we should avoid that in streaming system.
  */
@@ -102,9 +107,12 @@ public abstract class BaseFlinkCommitActionExecutor<T extends HoodieRecordPayloa
     final HoodieRecord<?> record = inputRecords.get(0);
     final String partitionPath = record.getPartitionPath();
     final String fileId = record.getCurrentLocation().getFileId();
+    //  insert or update bucket通
     final BucketType bucketType = record.getCurrentLocation().getInstantTime().equals("I")
         ? BucketType.INSERT
         : BucketType.UPDATE;
+
+    // 通过返回迭代器 handleUpsertPartition
     handleUpsertPartition(
         instantTime,
         partitionPath,
@@ -112,6 +120,7 @@ public abstract class BaseFlinkCommitActionExecutor<T extends HoodieRecordPayloa
         bucketType,
         inputRecords.iterator())
         .forEachRemaining(writeStatuses::addAll);
+
     setUpWriteMetadata(writeStatuses, result);
     return result;
   }
@@ -173,6 +182,7 @@ public abstract class BaseFlinkCommitActionExecutor<T extends HoodieRecordPayloa
       Iterator recordItr) {
     try {
       if (this.writeHandle instanceof HoodieCreateHandle) {
+        // cor 表使用
         // During one checkpoint interval, an insert record could also be updated,
         // for example, for an operation sequence of a record:
         //    I, U,   | U, U
@@ -182,12 +192,16 @@ public abstract class BaseFlinkCommitActionExecutor<T extends HoodieRecordPayloa
         // and append instead of UPDATE.
         return handleInsert(fileIdHint, recordItr);
       } else if (this.writeHandle instanceof HoodieMergeHandle) {
+        //  mor merge 使用  / cor 表的merge
         return handleUpdate(partitionPath, fileIdHint, recordItr);
       } else {
+        //  flink append mor 表使用
         switch (bucketType) {
           case INSERT:
+            //   bucket 内的第一条记录为 I
             return handleInsert(fileIdHint, recordItr);
           case UPDATE:
+            //  bucket 内的后续记录为U
             return handleUpdate(partitionPath, fileIdHint, recordItr);
           default:
             throw new AssertionError();
@@ -200,6 +214,9 @@ public abstract class BaseFlinkCommitActionExecutor<T extends HoodieRecordPayloa
     }
   }
 
+  /**
+   *   mor 表有自己的实现
+   */
   @Override
   public Iterator<List<WriteStatus>> handleUpdate(String partitionPath, String fileId,
                                                   Iterator<HoodieRecord<T>> recordItr)
@@ -209,17 +226,20 @@ public abstract class BaseFlinkCommitActionExecutor<T extends HoodieRecordPayloa
       LOG.info("Empty partition with fileId => " + fileId);
       return Collections.singletonList((List<WriteStatus>) Collections.EMPTY_LIST).iterator();
     }
-    // these are updates
+    // these are updates   HoodieMergeHandle
     HoodieMergeHandle<?, ?, ?, ?> upsertHandle = (HoodieMergeHandle<?, ?, ?, ?>) this.writeHandle;
+
     return handleUpdateInternal(upsertHandle, fileId);
   }
 
   protected Iterator<List<WriteStatus>> handleUpdateInternal(HoodieMergeHandle<?, ?, ?, ?> upsertHandle, String fileId)
       throws IOException {
     if (upsertHandle.getOldFilePath() == null) {
+      // 历史文件不存在
       throw new HoodieUpsertException(
           "Error in finding the old file path at commit " + instantTime + " for fileId: " + fileId);
     } else {
+      //  将 mergeHandle OldFilePath 中的parquet数据读取后，下发给mergeHandle 并填充 writeStatuses
       FlinkMergeHelper.newInstance().runMerge(table, upsertHandle);
     }
 
@@ -228,7 +248,7 @@ public abstract class BaseFlinkCommitActionExecutor<T extends HoodieRecordPayloa
       LOG.info("Upsert Handle has partition path as null " + upsertHandle.getOldFilePath() + ", "
           + upsertHandle.writeStatuses());
     }
-
+    // 返回状态信息
     return Collections.singletonList(upsertHandle.writeStatuses()).iterator();
   }
 
@@ -240,6 +260,7 @@ public abstract class BaseFlinkCommitActionExecutor<T extends HoodieRecordPayloa
       LOG.info("Empty partition");
       return Collections.singletonList((List<WriteStatus>) Collections.EMPTY_LIST).iterator();
     }
+
     return new FlinkLazyInsertIterable<>(recordItr, true, config, instantTime, table, idPfx,
         taskContextSupplier, new ExplicitWriteHandleFactory<>(writeHandle));
   }

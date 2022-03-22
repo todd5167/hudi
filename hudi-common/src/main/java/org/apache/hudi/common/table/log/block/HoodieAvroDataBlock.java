@@ -51,6 +51,7 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 
 /**
+ *   HoodieAvroDataBlock 包含使用 Avro 序列化的记录列表。 它与 Parquet 基本文件格式一起使用。
  * HoodieAvroDataBlock contains a list of records serialized using Avro. It is used with the Parquet base file format.
  */
 public class HoodieAvroDataBlock extends HoodieDataBlock {
@@ -87,6 +88,11 @@ public class HoodieAvroDataBlock extends HoodieDataBlock {
     return HoodieLogBlockType.AVRO_DATA_BLOCK;
   }
 
+  /**
+   *  将 IndexedRecord 以Avro格式写入log文件
+   * @return
+   * @throws IOException
+   */
   @Override
   protected byte[] serializeRecords() throws IOException {
     Schema schema = new Schema.Parser().parse(super.getLogBlockHeader().get(HeaderMetadataType.SCHEMA));
@@ -94,13 +100,11 @@ public class HoodieAvroDataBlock extends HoodieDataBlock {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     DataOutputStream output = new DataOutputStream(baos);
 
-    // 1. Write out the log block version
+    // 1. Write out the log block version      日志块版本
     output.writeInt(HoodieLogBlock.version);
-
-    // 2. Write total number of records
+    // 2. Write total number of records        总的记录数
     output.writeInt(records.size());
-
-    // 3. Write the records
+    // 3. Write the records                    avro record
     Iterator<IndexedRecord> itr = records.iterator();
     while (itr.hasNext()) {
       IndexedRecord s = itr.next();

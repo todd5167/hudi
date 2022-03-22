@@ -30,6 +30,7 @@ public abstract class BaseKeyGenerator extends KeyGenerator {
 
   protected List<String> recordKeyFields;
   protected List<String> partitionPathFields;
+
   protected final boolean encodePartitionPath;
   protected final boolean hiveStylePartitioning;
 

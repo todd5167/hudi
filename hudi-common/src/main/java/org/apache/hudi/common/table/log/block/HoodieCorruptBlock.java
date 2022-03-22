@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.util.Map;
 
 /**
+ *   每当扫描仪发现开头写入的块的长度不匹配时，就会发出损坏的块 （在长度之后没有找到 EOF 或同步标记）。
  * Corrupt block is emitted whenever the scanner finds the length of the block written at the beginning does not match
  * (did not find a EOF or a sync marker after the length).
  */

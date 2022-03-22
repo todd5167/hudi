@@ -83,6 +83,8 @@ public class HoodieFlinkWriteClient<T extends HoodieRecordPayload> extends
   private static final Logger LOG = LoggerFactory.getLogger(HoodieFlinkWriteClient.class);
 
   /**
+   *   fileID 对应的写入句柄,以便追加文件
+   *
    * FileID to write handle mapping in order to record the write handles for each file group,
    * so that we can append the mini-batch data buffer incrementally.
    */
@@ -99,6 +101,7 @@ public class HoodieFlinkWriteClient<T extends HoodieRecordPayload> extends
   }
 
   /**
+   * 使用指定操作在给定的即时标记处完成更改。
    * Complete changes performed at the given instantTime marker with specified action.
    */
   @Override
@@ -109,6 +112,7 @@ public class HoodieFlinkWriteClient<T extends HoodieRecordPayload> extends
   @Override
   public boolean commit(String instantTime, List<WriteStatus> writeStatuses, Option<Map<String, String>> extraMetadata, String commitActionType, Map<String, List<String>> partitionToReplacedFileIds) {
     List<HoodieWriteStat> writeStats = writeStatuses.parallelStream().map(WriteStatus::getStat).collect(Collectors.toList());
+    //  提交 写入状态信息
     return commitStats(instantTime, writeStats, extraMetadata, commitActionType, partitionToReplacedFileIds);
   }
 
@@ -136,13 +140,21 @@ public class HoodieFlinkWriteClient<T extends HoodieRecordPayload> extends
 
   @Override
   public List<WriteStatus> upsert(List<HoodieRecord<T>> records, String instantTime) {
+    //  创建 HoodieTable
     HoodieTable<T, List<HoodieRecord<T>>, List<HoodieKey>, List<WriteStatus>> table =
         getTableAndInitCtx(WriteOperationType.UPSERT, instantTime);
+    //  validate Upsert Schema
     table.validateUpsertSchema();
+    //  set  UPSERT  operation
     preWrite(instantTime, WriteOperationType.UPSERT, table.getMetaClient());
+
+    //  根据buffer中的第一条数据，创建数据写入句柄。第一条数据包含了fieldID 以及 currentInstant
     final HoodieWriteHandle<?, ?, ?, ?> writeHandle = getOrCreateWriteHandle(records.get(0), getConfig(),
         instantTime, table, records.listIterator());
+
+    // 执行 HoodieTable 的 upsert
     HoodieWriteMetadata<List<WriteStatus>> result = ((HoodieFlinkTable<T>) table).upsert(context, writeHandle, instantTime, records);
+
     if (result.getIndexLookupDuration().isPresent()) {
       metrics.updateIndexMetrics(LOOKUP_STR, result.getIndexLookupDuration().get().toMillis());
     }
@@ -156,6 +168,7 @@ public class HoodieFlinkWriteClient<T extends HoodieRecordPayload> extends
         getTableAndInitCtx(WriteOperationType.UPSERT, instantTime);
     table.validateUpsertSchema();
     preWrite(instantTime, WriteOperationType.UPSERT_PREPPED, table.getMetaClient());
+
     final HoodieWriteHandle<?, ?, ?, ?> writeHandle = getOrCreateWriteHandle(preppedRecords.get(0), getConfig(),
         instantTime, table, preppedRecords.listIterator());
     HoodieWriteMetadata<List<WriteStatus>> result = ((HoodieFlinkTable<T>) table).upsertPrepped(context, writeHandle, instantTime, preppedRecords);
@@ -259,6 +272,7 @@ public class HoodieFlinkWriteClient<T extends HoodieRecordPayload> extends
   protected void writeTableMetadata(HoodieTable table, String instantTime, String actionType, HoodieCommitMetadata metadata) {
     this.metadataWriterOption.ifPresent(w -> {
       w.initTableMetadata(); // refresh the timeline
+
       w.update(metadata, instantTime, getHoodieTable().isTableServiceAction(actionType));
     });
   }
@@ -448,9 +462,10 @@ public class HoodieFlinkWriteClient<T extends HoodieRecordPayload> extends
   }
 
   /**
+   *  依赖第一条数据传递的record信息
    * Get or create a new write handle in order to reuse the file handles.
    *
-   * @param record      The first record in the bucket
+   * @param record      The first record in the bucket    第一条记录包含写 fileId 和 location
    * @param config      Write config
    * @param instantTime The instant time
    * @param table       The table
@@ -463,19 +478,23 @@ public class HoodieFlinkWriteClient<T extends HoodieRecordPayload> extends
       String instantTime,
       HoodieTable<T, List<HoodieRecord<T>>, List<HoodieKey>, List<WriteStatus>> table,
       Iterator<HoodieRecord<T>> recordItr) {
+
     final HoodieRecordLocation loc = record.getCurrentLocation();
     final String fileID = loc.getFileId();
     final String partitionPath = record.getPartitionPath();
     final boolean insertClustering = config.allowDuplicateInserts();
-
+    //  历史 fileID
     if (bucketToHandles.containsKey(fileID)) {
       MiniBatchHandle lastHandle = (MiniBatchHandle) bucketToHandles.get(fileID);
+      //  FlinkAppendHandle  不会被替换
       if (lastHandle.shouldReplace()) {
         HoodieWriteHandle<?, ?, ?, ?> writeHandle = insertClustering
             ? new FlinkConcatAndReplaceHandle<>(config, instantTime, table, recordItr, partitionPath, fileID,
                 table.getTaskContextSupplier(), lastHandle.getWritePath())
+            //  非 insertClustering
             : new FlinkMergeAndReplaceHandle<>(config, instantTime, table, recordItr, partitionPath, fileID,
                 table.getTaskContextSupplier(), lastHandle.getWritePath());
+
         this.bucketToHandles.put(fileID, writeHandle); // override with new replace handle
         return writeHandle;
       }
@@ -484,18 +503,23 @@ public class HoodieFlinkWriteClient<T extends HoodieRecordPayload> extends
     final boolean isDelta = table.getMetaClient().getTableType().equals(HoodieTableType.MERGE_ON_READ);
     final HoodieWriteHandle<?, ?, ?, ?> writeHandle;
     if (isDelta) {
+      // mor表会通过创建FlinkAppendHandle  将数据追加到到log。
       writeHandle = new FlinkAppendHandle<>(config, instantTime, table, partitionPath, fileID, recordItr,
           table.getTaskContextSupplier());
     } else if (loc.getInstantTime().equals("I")) {
+      // cor 表 create
       writeHandle = new FlinkCreateHandle<>(config, instantTime, table, partitionPath,
           fileID, table.getTaskContextSupplier());
     } else {
+      // cor 表 update
       writeHandle = insertClustering
           ? new FlinkConcatHandle<>(config, instantTime, table, recordItr, partitionPath,
               fileID, table.getTaskContextSupplier())
+          //
           : new FlinkMergeHandle<>(config, instantTime, table, recordItr, partitionPath,
               fileID, table.getTaskContextSupplier());
     }
+
     this.bucketToHandles.put(fileID, writeHandle);
     return writeHandle;
   }

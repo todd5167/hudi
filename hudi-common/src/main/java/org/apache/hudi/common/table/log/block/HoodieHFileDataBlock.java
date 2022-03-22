@@ -59,6 +59,7 @@ import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
+ *  HoodieHFileDataBlock 包含存储在 HFile 格式中的记录列表。 它与 HFile 基本文件格式一起使用。
  * HoodieHFileDataBlock contains a list of records stored inside an HFile format. It is used with the HFile
  * base file format.
  */

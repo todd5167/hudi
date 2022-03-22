@@ -113,6 +113,7 @@ public class StreamerUtil {
     if (conf.getOptional(FlinkOptions.SOURCE_AVRO_SCHEMA_PATH).isPresent()) {
       return new FilebasedSchemaProvider(conf).getSourceSchema();
     } else if (conf.getOptional(FlinkOptions.SOURCE_AVRO_SCHEMA).isPresent()) {
+      //  根据 flink DDL语句推断出  avro schema. 回转为Scheam
       final String schemaStr = conf.get(FlinkOptions.SOURCE_AVRO_SCHEMA);
       return new Schema.Parser().parse(schemaStr);
     } else {
@@ -160,12 +161,14 @@ public class StreamerUtil {
       Configuration conf,
       boolean enableEmbeddedTimelineService,
       boolean loadFsViewStorageConfig) {
+
     HoodieWriteConfig.Builder builder =
         HoodieWriteConfig.newBuilder()
             .withEngineType(EngineType.FLINK)
             .withPath(conf.getString(FlinkOptions.PATH))
             .combineInput(conf.getBoolean(FlinkOptions.PRE_COMBINE), true)
             .withMergeAllowDuplicateOnInserts(OptionsResolver.insertClustering(conf))
+             //  压缩相关参数
             .withCompactionConfig(
                 HoodieCompactionConfig.newBuilder()
                     .withPayloadClass(conf.getString(FlinkOptions.PAYLOAD_CLASS_NAME))
@@ -182,6 +185,7 @@ public class StreamerUtil {
                     .archiveCommitsWith(conf.getInteger(FlinkOptions.ARCHIVE_MIN_COMMITS), conf.getInteger(FlinkOptions.ARCHIVE_MAX_COMMITS))
                     .withCleanerPolicy(HoodieCleaningPolicy.KEEP_LATEST_COMMITS)
                     .build())
+
             .withMemoryConfig(
                 HoodieMemoryConfig.newBuilder()
                     .withMaxMemoryMaxSize(
@@ -189,6 +193,7 @@ public class StreamerUtil {
                         conf.getInteger(FlinkOptions.COMPACTION_MAX_MEMORY) * 1024 * 1024L
                     ).build())
             .forTable(conf.getString(FlinkOptions.TABLE_NAME))
+                // 存储配置
             .withStorageConfig(HoodieStorageConfig.newBuilder()
                 .logFileDataBlockMaxSize(conf.getInteger(FlinkOptions.WRITE_LOG_BLOCK_SIZE) * 1024 * 1024)
                 .logFileMaxSize(conf.getLong(FlinkOptions.WRITE_LOG_MAX_SIZE) * 1024 * 1024)
@@ -200,6 +205,7 @@ public class StreamerUtil {
                 .enable(conf.getBoolean(FlinkOptions.METADATA_ENABLED))
                 .withMaxNumDeltaCommitsBeforeCompaction(conf.getInteger(FlinkOptions.METADATA_COMPACTION_DELTA_COMMITS))
                 .build())
+
             .withPayloadConfig(HoodiePayloadConfig.newBuilder()
                 .withPayloadOrderingField(conf.getString(FlinkOptions.PRECOMBINE_FIELD))
                 .withPayloadEventTimeField(conf.getString(FlinkOptions.PRECOMBINE_FIELD))
@@ -212,6 +218,7 @@ public class StreamerUtil {
             .withSchema(getSourceSchema(conf).toString());
 
     HoodieWriteConfig writeConfig = builder.build();
+    //  加载 FS 存储
     if (loadFsViewStorageConfig) {
       // do not use the builder to give a change for recovering the original fs view storage config
       FileSystemViewStorageConfig viewStorageConfig = ViewStorageProperties.loadFromProperties(conf.getString(FlinkOptions.PATH));
@@ -221,6 +228,9 @@ public class StreamerUtil {
   }
 
   /**
+   *
+   *    将flink config配置的信息存储到TypedProperties， 其中会有一些hoodie默认选项
+   *
    * Converts the give {@link Configuration} to {@link TypedProperties}.
    * The default values are also set up.
    *
@@ -384,6 +394,7 @@ public class StreamerUtil {
             new FlinkTaskContextSupplier(runtimeContext));
 
     HoodieWriteConfig writeConfig = getHoodieClientConfig(conf, loadFsViewStorageConfig);
+    // 创建HoodieFlinkWriteClient
     return new HoodieFlinkWriteClient<>(context, writeConfig);
   }
 
@@ -481,6 +492,12 @@ public class StreamerUtil {
     return getLastPendingInstant(metaClient, true);
   }
 
+  /**
+   *
+   * @param metaClient
+   * @param reloadTimeline
+   * @return
+   */
   public static String getLastPendingInstant(HoodieTableMetaClient metaClient, boolean reloadTimeline) {
     if (reloadTimeline) {
       metaClient.reloadActiveTimeline();

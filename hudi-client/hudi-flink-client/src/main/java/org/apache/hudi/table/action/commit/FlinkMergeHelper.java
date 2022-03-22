@@ -65,14 +65,16 @@ public class FlinkMergeHelper<T extends HoodieRecordPayload> extends AbstractMer
     final GenericDatumWriter<GenericRecord> gWriter;
     final GenericDatumReader<GenericRecord> gReader;
     Schema readSchema;
-
+    // Read records from previous version of base file and merge.
     final boolean externalSchemaTransformation = table.getConfig().shouldUseExternalSchemaTransformation();
     HoodieBaseFile baseFile = mergeHandle.baseFileForMerge();
+
     if (externalSchemaTransformation || baseFile.getBootstrapBaseFile().isPresent()) {
       readSchema = HoodieFileReaderFactory.getFileReader(table.getHadoopConf(), mergeHandle.getOldFilePath()).getSchema();
       gWriter = new GenericDatumWriter<>(readSchema);
       gReader = new GenericDatumReader<>(readSchema, mergeHandle.getWriterSchemaWithMetaFields());
     } else {
+      // flink 走这 ==>
       gReader = null;
       gWriter = null;
       readSchema = mergeHandle.getWriterSchemaWithMetaFields();
@@ -80,31 +82,41 @@ public class FlinkMergeHelper<T extends HoodieRecordPayload> extends AbstractMer
 
     BoundedInMemoryExecutor<GenericRecord, GenericRecord, Void> wrapper = null;
     Configuration cfgForHoodieFile = new Configuration(table.getHadoopConf());
+    //  构建 base file 读取器
     HoodieFileReader<GenericRecord> reader = HoodieFileReaderFactory.<GenericRecord>getFileReader(cfgForHoodieFile, mergeHandle.getOldFilePath());
     try {
       final Iterator<GenericRecord> readerIterator;
       if (baseFile.getBootstrapBaseFile().isPresent()) {
         readerIterator = getMergingIterator(table, mergeHandle, baseFile, reader, readSchema, externalSchemaTransformation);
       } else {
+        // flink ==>   读取 base file （历史parquet）
         readerIterator = reader.getRecordIterator(readSchema);
       }
 
       ThreadLocal<BinaryEncoder> encoderCache = new ThreadLocal<>();
       ThreadLocal<BinaryDecoder> decoderCache = new ThreadLocal<>();
-      wrapper = new BoundedInMemoryExecutor(table.getConfig().getWriteBufferLimitBytes(), new IteratorBasedQueueProducer<>(readerIterator),
-          Option.of(new UpdateHandler(mergeHandle)), record -> {
-        if (!externalSchemaTransformation) {
-          return record;
-        }
-        return transformRecordBasedOnNewSchema(gReader, gWriter, encoderCache, decoderCache, (GenericRecord) record);
-      });
+
+      wrapper = new BoundedInMemoryExecutor(table.getConfig().getWriteBufferLimitBytes(),
+          new IteratorBasedQueueProducer<>(readerIterator),  // 生产者
+          Option.of(new UpdateHandler(mergeHandle)),        //  消费者
+          record -> {
+              if (!externalSchemaTransformation) {
+                // flink ==>  不进行转换
+                return record;
+              }
+             return transformRecordBasedOnNewSchema(gReader, gWriter, encoderCache, decoderCache, (GenericRecord) record);
+            }
+      );
+
       wrapper.execute();
     } catch (Exception e) {
       throw new HoodieException(e);
     } finally {
       if (reader != null) {
+        // parquet
         reader.close();
       }
+
       mergeHandle.close();
       if (null != wrapper) {
         wrapper.shutdownNow();

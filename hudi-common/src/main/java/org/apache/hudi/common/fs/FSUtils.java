@@ -226,9 +226,12 @@ public class FSUtils {
     final boolean isMetadataTable = HoodieTableMetadata.isMetadataTable(basePathStr);
     final Path basePath = new Path(basePathStr);
     final List<String> partitions = new ArrayList<>();
+
     processFiles(fs, basePathStr, (locatedFileStatus) -> {
       Path filePath = locatedFileStatus.getPath();
       if (filePath.getName().equals(HoodiePartitionMetadata.HOODIE_PARTITION_METAFILE)) {
+        //  查找所有分区文件夹 .hoodie_partition_metadata
+        //
         partitions.add(getRelativePartitionPath(basePath, filePath.getParent()));
       }
       return true;

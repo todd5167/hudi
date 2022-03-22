@@ -124,6 +124,7 @@ public class BootstrapOperator<I, O extends HoodieRecord<?>>
     this.hoodieTable = FlinkTables.createTable(writeConfig, hadoopConf, getRuntimeContext());
     this.aggregateManager = getRuntimeContext().getGlobalAggregateManager();
 
+    // 加载历史数据构建索引
     preLoadIndexRecords();
   }
 
@@ -132,9 +133,12 @@ public class BootstrapOperator<I, O extends HoodieRecord<?>>
    */
   protected void preLoadIndexRecords() throws Exception {
     String basePath = hoodieTable.getMetaClient().getBasePath();
+
     int taskID = getRuntimeContext().getIndexOfThisSubtask();
     LOG.info("Start loading records in table {} into the index state, taskId = {}", basePath, taskID);
+
     for (String partitionPath : FSUtils.getAllFoldersWithPartitionMetaFile(FSUtils.getFs(basePath, hadoopConf), basePath)) {
+      // 通过正则匹配指定分区，并下发数据
       if (pattern.matcher(partitionPath).matches()) {
         loadRecords(partitionPath);
       }
@@ -142,6 +146,7 @@ public class BootstrapOperator<I, O extends HoodieRecord<?>>
 
     LOG.info("Finish sending index records, taskId = {}.", getRuntimeContext().getIndexOfThisSubtask());
 
+    //  通过聚合器等待所有子任务完成
     // wait for the other bootstrap tasks finish bootstrapping.
     waitForBootstrapReady(getRuntimeContext().getIndexOfThisSubtask());
   }
@@ -193,6 +198,7 @@ public class BootstrapOperator<I, O extends HoodieRecord<?>>
     Option<HoodieInstant> latestCommitTime = commitsTimeline.filterCompletedInstants().lastInstant();
 
     if (latestCommitTime.isPresent()) {
+      // 加载最新的 fileSliece
       List<FileSlice> fileSlices = this.hoodieTable.getSliceView()
           .getLatestFileSlicesBeforeOrOn(partitionPath, latestCommitTime.get().getTimestamp(), true)
           .collect(toList());
@@ -219,6 +225,7 @@ public class BootstrapOperator<I, O extends HoodieRecord<?>>
           }
 
           for (HoodieKey hoodieKey : hoodieKeys) {
+            // 下发 IndexRecord
             output.collect(new StreamRecord(new IndexRecord(generateHoodieRecord(hoodieKey, fileSlice))));
           }
         });
@@ -229,6 +236,8 @@ public class BootstrapOperator<I, O extends HoodieRecord<?>>
             .filter(logFile -> isValidFile(logFile.getFileStatus()))
             .map(logFile -> logFile.getPath().toString())
             .collect(toList());
+
+        //    读取log 文件并下发
         HoodieMergedLogRecordScanner scanner = FormatUtils.logScanner(logPaths, schema, latestCommitTime.get().getTimestamp(),
             writeConfig, hadoopConf);
 

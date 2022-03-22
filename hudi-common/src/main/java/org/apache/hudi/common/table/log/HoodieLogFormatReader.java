@@ -33,6 +33,9 @@ import java.util.List;
 
 /**
  * Hoodie log format reader.
+ *
+ *    依赖 HoodieLogFileReader  读取
+ *
  */
 public class HoodieLogFormatReader implements HoodieLogFormat.Reader {
 
@@ -62,6 +65,7 @@ public class HoodieLogFormatReader implements HoodieLogFormat.Reader {
     this.prevReadersInOpenState = new ArrayList<>();
     this.recordKeyField = recordKeyField;
     this.enableInlineReading = enableInlineReading;
+
     if (logFiles.size() > 0) {
       HoodieLogFile nextLogFile = logFiles.remove(0);
       this.currentReader = new HoodieLogFileReader(fs, nextLogFile, readerSchema, bufferSize, readBlocksLazily, false,
@@ -90,20 +94,22 @@ public class HoodieLogFormatReader implements HoodieLogFormat.Reader {
 
   @Override
   public boolean hasNext() {
-
     if (currentReader == null) {
       return false;
     } else if (currentReader.hasNext()) {
       return true;
     } else if (logFiles.size() > 0) {
       try {
+        // 读取下一个 logfile
         HoodieLogFile nextLogFile = logFiles.remove(0);
         // First close previous reader only if readBlockLazily is true
         if (!readBlocksLazily) {
           this.currentReader.close();
         } else {
+          // 懒加载先放prevReadersInOpenState集合
           this.prevReadersInOpenState.add(currentReader);
         }
+        //  针对 logfile 构建 FileReader
         this.currentReader = new HoodieLogFileReader(fs, nextLogFile, readerSchema, bufferSize, readBlocksLazily, false,
             enableInlineReading, recordKeyField);
       } catch (IOException io) {
@@ -117,6 +123,7 @@ public class HoodieLogFormatReader implements HoodieLogFormat.Reader {
 
   @Override
   public HoodieLogBlock next() {
+    //  通过 HoodieLogFileReader 来读取 LogBlock
     return currentReader.next();
   }
 
@@ -135,6 +142,7 @@ public class HoodieLogFormatReader implements HoodieLogFormat.Reader {
 
   @Override
   public HoodieLogBlock prev() throws IOException {
+    // 前一个 LogBlock。 从后向前读block
     return this.currentReader.prev();
   }
 

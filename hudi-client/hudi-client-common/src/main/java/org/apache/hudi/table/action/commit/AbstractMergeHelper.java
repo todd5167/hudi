@@ -57,7 +57,8 @@ public abstract class AbstractMergeHelper<T extends HoodieRecordPayload, I, K, O
    */
   public abstract void runMerge(HoodieTable<T, I, K, O> table, HoodieMergeHandle<T, I, K, O> upsertHandle) throws IOException;
 
-  protected GenericRecord transformRecordBasedOnNewSchema(GenericDatumReader<GenericRecord> gReader, GenericDatumWriter<GenericRecord> gWriter,
+  protected GenericRecord transformRecordBasedOnNewSchema(GenericDatumReader<GenericRecord> gReader,
+                                                          GenericDatumWriter<GenericRecord> gWriter,
                                                                ThreadLocal<BinaryEncoder> encoderCache, ThreadLocal<BinaryDecoder> decoderCache,
                                                                GenericRecord gRec) {
     ByteArrayOutputStream inStream = null;

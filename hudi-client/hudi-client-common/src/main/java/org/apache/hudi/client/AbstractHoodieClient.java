@@ -74,7 +74,9 @@ public abstract class AbstractHoodieClient implements Serializable, AutoCloseabl
     shouldStopTimelineServer = !timelineServer.isPresent();
     this.heartbeatClient = new HoodieHeartbeatClient(this.fs, this.basePath,
         clientConfig.getHoodieClientHeartbeatIntervalInMs(), clientConfig.getHoodieClientHeartbeatTolerableMisses());
+    // 启动 Embed server
     startEmbeddedServerView();
+
     initWrapperFSMetrics();
   }
 
@@ -105,6 +107,7 @@ public abstract class AbstractHoodieClient implements Serializable, AutoCloseabl
     if (config.isEmbeddedTimelineServerEnabled()) {
       if (!timelineServer.isPresent()) {
         // Run Embedded Timeline Server
+        //  启动 Timeline Server
         try {
           timelineServer = EmbeddedTimelineServerHelper.createEmbeddedTimelineService(context, config);
         } catch (IOException e) {

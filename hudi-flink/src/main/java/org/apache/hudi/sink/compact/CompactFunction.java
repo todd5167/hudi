@@ -101,6 +101,7 @@ public class CompactFunction extends ProcessFunction<CompactionPlanEvent, Compac
 
   private void doCompaction(String instantTime, CompactionOperation compactionOperation, Collector<CompactionCommitEvent> collector) throws IOException {
     HoodieFlinkMergeOnReadTableCompactor compactor = new HoodieFlinkMergeOnReadTableCompactor();
+
     List<WriteStatus> writeStatuses = compactor.compact(
         new HoodieFlinkCopyOnWriteTable<>(
             writeClient.getConfig(),
@@ -111,6 +112,8 @@ public class CompactFunction extends ProcessFunction<CompactionPlanEvent, Compac
         compactionOperation,
         instantTime,
         writeClient.getHoodieTable().getTaskContextSupplier());
+
+
     collector.collect(new CompactionCommitEvent(instantTime, compactionOperation.getFileId(), writeStatuses, taskID));
   }
 

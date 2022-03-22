@@ -152,6 +152,7 @@ public class HoodieInstant implements Serializable, Comparable<HoodieInstant> {
     } else if (HoodieTimeline.SAVEPOINT_ACTION.equals(action)) {
       return isInflight() ? HoodieTimeline.makeInflightSavePointFileName(timestamp)
           : HoodieTimeline.makeSavePointFileName(timestamp);
+      // delta commit
     } else if (HoodieTimeline.DELTA_COMMIT_ACTION.equals(action)) {
       return isInflight() ? HoodieTimeline.makeInflightDeltaFileName(timestamp)
           : isRequested() ? HoodieTimeline.makeRequestedDeltaFileName(timestamp)

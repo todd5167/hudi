@@ -41,6 +41,13 @@ import java.util.List;
 
 import static org.apache.hudi.common.data.HoodieList.getList;
 
+/**
+ *  1. 用来创建  HoodieFlinkCopyOnWriteTable or HoodieFlinkMergeOnReadTable
+ *  2.  convertMetadata
+ *
+ *
+ * @param <T>
+ */
 public abstract class HoodieFlinkTable<T extends HoodieRecordPayload>
     extends HoodieTable<T, List<HoodieRecord<T>>, List<HoodieKey>, List<WriteStatus>>
     implements ExplicitWriteHandleTable<T> {
@@ -49,11 +56,23 @@ public abstract class HoodieFlinkTable<T extends HoodieRecordPayload>
     super(config, context, metaClient);
   }
 
+  /**
+   *   创建 HoodieFlinkTable
+   * @param config
+   * @param context
+   * @param <T>
+   * @return
+   */
   public static <T extends HoodieRecordPayload> HoodieFlinkTable<T> create(HoodieWriteConfig config, HoodieFlinkEngineContext context) {
     HoodieTableMetaClient metaClient =
-        HoodieTableMetaClient.builder().setConf(context.getHadoopConf().get()).setBasePath(config.getBasePath())
-            .setLoadActiveTimelineOnLoad(true).setConsistencyGuardConfig(config.getConsistencyGuardConfig())
-            .setLayoutVersion(Option.of(new TimelineLayoutVersion(config.getTimelineLayoutVersion()))).build();
+        HoodieTableMetaClient.builder()
+            .setConf(context.getHadoopConf().get())
+            .setBasePath(config.getBasePath())
+            .setLoadActiveTimelineOnLoad(true)
+            .setConsistencyGuardConfig(config.getConsistencyGuardConfig())
+            .setLayoutVersion(Option.of(new TimelineLayoutVersion(config.getTimelineLayoutVersion())))
+            .build();
+
     return HoodieFlinkTable.create(config, context, metaClient);
   }
 
@@ -84,6 +103,10 @@ public abstract class HoodieFlinkTable<T extends HoodieRecordPayload>
     return hoodieFlinkTable;
   }
 
+  /**
+   * ------------------------------------------------------------------------------------------------------------------------------
+   */
+
   public static HoodieWriteMetadata<List<WriteStatus>> convertMetadata(
       HoodieWriteMetadata<HoodieData<WriteStatus>> metadata) {
     return metadata.clone(getList(metadata.getWriteStatuses()));
@@ -103,6 +126,7 @@ public abstract class HoodieFlinkTable<T extends HoodieRecordPayload>
   public <T extends SpecificRecordBase> Option<HoodieTableMetadataWriter> getMetadataWriter(String triggeringInstantTimestamp,
                                                                                             Option<T> actionMetadata) {
     if (config.isMetadataTableEnabled()) {
+
       return Option.of(FlinkHoodieBackedTableMetadataWriter.create(context.getHadoopConf().get(), config,
           context, actionMetadata, Option.of(triggeringInstantTimestamp)));
     } else {

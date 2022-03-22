@@ -36,8 +36,10 @@ public class BloomFilterFactory {
   public static BloomFilter createBloomFilter(int numEntries, double errorRate, int maxNumberOfEntries,
                                               String bloomFilterTypeCode) {
     if (bloomFilterTypeCode.equalsIgnoreCase(BloomFilterTypeCode.SIMPLE.name())) {
+
       return new SimpleBloomFilter(numEntries, errorRate, Hash.MURMUR_HASH);
     } else if (bloomFilterTypeCode.equalsIgnoreCase(BloomFilterTypeCode.DYNAMIC_V0.name())) {
+      //   DynamicBounded
       return new HoodieDynamicBoundedBloomFilter(numEntries, errorRate, Hash.MURMUR_HASH, maxNumberOfEntries);
     } else {
       throw new IllegalArgumentException("Bloom Filter type code not recognizable " + bloomFilterTypeCode);

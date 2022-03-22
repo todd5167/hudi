@@ -93,7 +93,7 @@ public class HoodieStorageConfig extends HoodieConfig {
   // used to size data blocks in log file
   public static final ConfigProperty<String> LOGFILE_DATA_BLOCK_MAX_SIZE = ConfigProperty
       .key("hoodie.logfile.data.block.max.size")
-      .defaultValue(String.valueOf(256 * 1024 * 1024))
+      .defaultValue(String.valueOf(256 * 1024 * 1024))  // 256m
       .withDocumentation("LogFile Data block max size. This is the maximum size allowed for a single data block "
           + "to be appended to a log file. This helps to make sure the data appended to the log file is broken up "
           + "into sizable blocks to prevent from OOM errors. This size should be greater than the JVM memory.");

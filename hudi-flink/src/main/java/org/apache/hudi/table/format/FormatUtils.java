@@ -124,6 +124,7 @@ public class FormatUtils {
       Configuration config,
       boolean withOperationField) {
     FileSystem fs = FSUtils.getFs(split.getTablePath(), config);
+
     return HoodieMergedLogRecordScanner.newBuilder()
         .withFileSystem(fs)
         .withBasePath(split.getTablePath())
@@ -159,6 +160,7 @@ public class FormatUtils {
         .withLogFilePaths(split.getLogPaths().get())
         .withReaderSchema(logSchema)
         .withLatestInstantTime(split.getLatestCommit())
+        //  readBlocksLazily   默认 true
         .withReadBlocksLazily(
             string2Boolean(
                 config.get(HoodieRealtimeConfig.COMPACTION_LAZY_BLOCK_READ_ENABLED_PROP,
@@ -197,6 +199,7 @@ public class FormatUtils {
           new DefaultSizeEstimator<>());
       // Consumer of this record reader
       this.iterator = this.executor.getQueue().iterator();
+
       this.scanner = FormatUtils.unMergedLogScanner(split, logSchema, hadoopConf,
           record -> executor.getQueue().insertRecord(record));
       // Start reading and buffering
@@ -224,6 +227,15 @@ public class FormatUtils {
     }
   }
 
+  /**
+   *   BootstrapOperator 会用
+   * @param logPaths
+   * @param logSchema
+   * @param latestInstantTime
+   * @param writeConfig
+   * @param hadoopConf
+   * @return
+   */
   public static HoodieMergedLogRecordScanner logScanner(
       List<String> logPaths,
       Schema logSchema,

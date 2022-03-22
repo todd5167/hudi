@@ -136,6 +136,7 @@ public class BulkInsertWriteFunction<I>
    * End input action for batch source.
    */
   public void endInput() {
+    // 发送 coordinator 事件
     final List<WriteStatus> writeStatus = this.writerHelper.getWriteStatuses(this.taskID);
 
     final WriteMetadataEvent event = WriteMetadataEvent.builder()
@@ -145,6 +146,7 @@ public class BulkInsertWriteFunction<I>
         .lastBatch(true)
         .endInput(true)
         .build();
+
     this.eventGateway.sendEventToCoordinator(event);
   }
 
@@ -167,6 +169,7 @@ public class BulkInsertWriteFunction<I>
 
   private void initWriterHelper() {
     String instant = instantToWrite();
+
     this.writerHelper = new BulkInsertWriterHelper(this.config, this.writeClient.getHoodieTable(), this.writeClient.getConfig(),
         instant, this.taskID, getRuntimeContext().getNumberOfParallelSubtasks(), getRuntimeContext().getAttemptNumber(),
         this.rowType);

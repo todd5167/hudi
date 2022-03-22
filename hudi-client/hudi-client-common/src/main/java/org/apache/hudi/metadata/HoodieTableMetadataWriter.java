@@ -31,6 +31,7 @@ import java.io.Serializable;
 public interface HoodieTableMetadataWriter extends Serializable, AutoCloseable {
 
   /**
+   *    更新元数据表
    * Update the metadata table due to a COMMIT operation.
    * @param commitMetadata commit metadata of the operation of interest.
    * @param instantTime instant time of the commit.

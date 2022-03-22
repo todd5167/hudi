@@ -100,6 +100,13 @@ public class FlinkHoodieBackedTableMetadataWriter extends HoodieBackedTableMetad
     }
   }
 
+  /**
+   *
+   * @param hoodieDataRecords  元数据信息以 record 格式写入
+   * @param partitionName The partition to which the records are to be written.
+   * @param instantTime The timestamp to use for the deltacommit.
+   * @param canTriggerTableService true if table services can be scheduled and executed. false otherwise.
+   */
   @Override
   protected void commit(HoodieData<HoodieRecord> hoodieDataRecords, String partitionName, String instantTime, boolean canTriggerTableService) {
     ValidationUtils.checkState(enabled, "Metadata table cannot be committed to as it is not enabled");
@@ -108,8 +115,13 @@ public class FlinkHoodieBackedTableMetadataWriter extends HoodieBackedTableMetad
 
     try (HoodieFlinkWriteClient writeClient = new HoodieFlinkWriteClient(engineContext, metadataWriteConfig)) {
       if (!metadataMetaClient.getActiveTimeline().filterCompletedInstants().containsInstant(instantTime)) {
+        //
         // if this is a new commit being applied to metadata for the first time
+        // instantTime 未提交 启动instant  并先rollback失败的 commit
+        // ************************  回滚入口 ***********
         writeClient.startCommitWithTime(instantTime);
+
+        // Requested ---> Inflight
         metadataMetaClient.getActiveTimeline().transitionRequestedToInflight(HoodieActiveTimeline.DELTA_COMMIT_ACTION, instantTime);
       } else {
         // this code path refers to a re-attempted commit that got committed to metadata table, but failed in datatable.
@@ -120,6 +132,7 @@ public class FlinkHoodieBackedTableMetadataWriter extends HoodieBackedTableMetad
         // already part of completed commit. So, we have to manually remove the completed instant and proceed.
         // and it is for the same reason we enabled withAllowMultiWriteOnSameInstant for metadata table.
         HoodieInstant alreadyCompletedInstant = metadataMetaClient.getActiveTimeline().filterCompletedInstants().filter(entry -> entry.getTimestamp().equals(instantTime)).lastInstant().get();
+        // 删除 instant 文件
         HoodieActiveTimeline.deleteInstantFile(metadataMetaClient.getFs(), metadataMetaClient.getMetaPath(), alreadyCompletedInstant);
         metadataMetaClient.reloadActiveTimeline();
       }
@@ -132,6 +145,8 @@ public class FlinkHoodieBackedTableMetadataWriter extends HoodieBackedTableMetad
           throw new HoodieMetadataException("Failed to commit metadata table records at instant " + instantTime);
         }
       });
+
+      //  提交元数据
       // flink does not support auto-commit yet, also the auto commit logic is not complete as AbstractHoodieWriteClient now.
       writeClient.commit(instantTime, statuses, Option.empty(), HoodieActiveTimeline.DELTA_COMMIT_ACTION, Collections.emptyMap());
 
@@ -149,6 +164,7 @@ public class FlinkHoodieBackedTableMetadataWriter extends HoodieBackedTableMetad
   }
 
   /**
+   *   用给定分区中的位置标记每条记录。
    * Tag each record with the location in the given partition.
    *
    * The record is tagged with respective file slice's location based on its record key.

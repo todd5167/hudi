@@ -49,6 +49,10 @@ public class FlinkLazyInsertIterable<T extends HoodieRecordPayload> extends Hood
     super(recordItr, areRecordsSorted, config, instantTime, hoodieTable, idPrefix, taskContextSupplier, writeHandleFactory);
   }
 
+  /**
+   *   执行入口
+   * @return
+   */
   @Override
   protected List<WriteStatus> computeNext() {
     // Executor service used for launching writer thread.
@@ -56,8 +60,13 @@ public class FlinkLazyInsertIterable<T extends HoodieRecordPayload> extends Hood
         null;
     try {
       final Schema schema = new Schema.Parser().parse(hoodieConfig.getSchema());
-      bufferedIteratorExecutor = new BoundedInMemoryExecutor<>(hoodieConfig.getWriteBufferLimitBytes(), new IteratorBasedQueueProducer<>(inputItr),
-          Option.of(getExplicitInsertHandler()), getTransformFunction(schema, hoodieConfig));
+      //  创建 BoundedInMemoryExecutor
+      bufferedIteratorExecutor = new BoundedInMemoryExecutor<>(hoodieConfig.getWriteBufferLimitBytes(),
+          new IteratorBasedQueueProducer<>(inputItr),  // 生产者，对象创建时传递了要下发数据的集合的 Iterator
+          Option.of(getExplicitInsertHandler()),      // 消费者，ExplicitWriteHandleFactory 用来创建 HoodieWriteHandle
+          getTransformFunction(schema, hoodieConfig)); // 转换函数
+
+      // 开始执行，阻塞获取数据写入的状态信息 WriteStatus
       final List<WriteStatus> result = bufferedIteratorExecutor.execute();
       assert result != null && !result.isEmpty() && !bufferedIteratorExecutor.isRemaining();
       return result;
@@ -73,6 +82,7 @@ public class FlinkLazyInsertIterable<T extends HoodieRecordPayload> extends Hood
   @SuppressWarnings("rawtypes")
   private ExplicitWriteHandler getExplicitInsertHandler() {
     HoodieWriteHandle handle = ((ExplicitWriteHandleFactory) writeHandleFactory).getWriteHandle();
+    //  HoodieAppendHandle
     return new ExplicitWriteHandler(handle);
   }
 }

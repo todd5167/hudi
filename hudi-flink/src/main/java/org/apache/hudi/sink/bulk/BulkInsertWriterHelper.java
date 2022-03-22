@@ -75,6 +75,7 @@ public class BulkInsertWriterHelper {
     this.taskId = taskId;
     this.taskEpochId = taskEpochId;
     this.rowType = addMetadataFields(rowType, writeConfig.allowOperationMetadataField()); // patch up with metadata fields
+
     this.arePartitionRecordsSorted = conf.getBoolean(FlinkOptions.WRITE_BULK_INSERT_SORT_BY_PARTITION);
     this.fileIdPrefix = UUID.randomUUID().toString();
     this.keyGen = RowDataKeyGen.instance(conf, rowType);
@@ -91,12 +92,14 @@ public class BulkInsertWriterHelper {
     try {
       String recordKey = keyGen.getRecordKey(record);
       String partitionPath = keyGen.getPartitionPath(record);
-
+      //
       if ((lastKnownPartitionPath == null) || !lastKnownPartitionPath.equals(partitionPath) || !handle.canWrite()) {
         LOG.info("Creating new file for partition path " + partitionPath);
+
         handle = getRowCreateHandle(partitionPath);
         lastKnownPartitionPath = partitionPath;
       }
+
       handle.write(recordKey, partitionPath, record);
     } catch (Throwable t) {
       LOG.error("Global error thrown while trying to write records in HoodieRowCreateHandle ", t);
@@ -108,27 +111,41 @@ public class BulkInsertWriterHelper {
     close();
     return writeStatusList;
   }
-
+  //  文件写入句柄
   private HoodieRowDataCreateHandle getRowCreateHandle(String partitionPath) throws IOException {
     if (!handles.containsKey(partitionPath)) { // if there is no handle corresponding to the partition path
+
       // if records are sorted, we can close all existing handles
       if (arePartitionRecordsSorted) {
         close();
       }
+
       HoodieRowDataCreateHandle rowCreateHandle = new HoodieRowDataCreateHandle(hoodieTable, writeConfig, partitionPath, getNextFileId(),
           instantTime, taskPartitionId, taskId, taskEpochId, rowType);
+
+      LOG.info(String.format("===== handles === 不包含分区:%s, 将要创建%s。当前缓存分区：%s", partitionPath,
+              rowCreateHandle.getFileName(), handles.keySet().stream().collect(Collectors.joining(","))));
+
       handles.put(partitionPath, rowCreateHandle);
+
     } else if (!handles.get(partitionPath).canWrite()) {
       // even if there is a handle to the partition path, it could have reached its max size threshold. So, we close the handle here and
       // create a new one.
       writeStatusList.add(handles.remove(partitionPath).close());
+
       HoodieRowDataCreateHandle rowCreateHandle = new HoodieRowDataCreateHandle(hoodieTable, writeConfig, partitionPath, getNextFileId(),
           instantTime, taskPartitionId, taskId, taskEpochId, rowType);
+
+      LOG.info(String.format("===== handles === 当前分区已经写满:%s, 将要创建:%s。当前缓存分区：%s ", partitionPath, rowCreateHandle.getFileName(),
+              handles.keySet().stream().collect(Collectors.joining(","))));
+
       handles.put(partitionPath, rowCreateHandle);
     }
+
+
     return handles.get(partitionPath);
   }
-
+  //  关闭状态
   public void close() throws IOException {
     for (HoodieRowDataCreateHandle rowCreateHandle : handles.values()) {
       writeStatusList.add(rowCreateHandle.close());

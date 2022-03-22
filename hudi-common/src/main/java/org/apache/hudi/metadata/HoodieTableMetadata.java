@@ -32,6 +32,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
+ *  支持查询有关 hudi 表的各种元数据的接口。
+ *
  * Interface that supports querying various pieces of metadata about a hudi table.
  */
 public interface HoodieTableMetadata extends Serializable, AutoCloseable {
@@ -83,6 +85,7 @@ public interface HoodieTableMetadata extends Serializable, AutoCloseable {
     if (metadataConfig.enabled()) {
       return new HoodieBackedTableMetadata(engineContext, metadataConfig, datasetBasePath, spillableMapPath, reuse);
     } else {
+      // fs
       return new FileSystemBackedTableMetadata(engineContext, new SerializableConfiguration(engineContext.getHadoopConf()),
           datasetBasePath, metadataConfig.shouldAssumeDatePartitioning());
     }

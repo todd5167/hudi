@@ -71,6 +71,7 @@ public class HoodieRowDataParquetWriteSupport extends RowDataParquetWriteSupport
 
   public void add(String recordKey) {
     this.bloomFilter.add(recordKey);
+
     if (minRecordKey != null) {
       minRecordKey = minRecordKey.compareTo(recordKey) <= 0 ? minRecordKey : recordKey;
     } else {

@@ -22,6 +22,8 @@ import org.apache.hudi.common.table.view.TableFileSystemView.BaseFileOnlyView;
 import org.apache.hudi.common.table.view.TableFileSystemView.SliceView;
 
 /**
+ *
+ *   一个统一的文件系统视图界面，显示完整的切片和仅基本文件视图以及更新操作。
  * A consolidated file-system view interface exposing both complete slice and basefile only views along with
  * update operations.
  */

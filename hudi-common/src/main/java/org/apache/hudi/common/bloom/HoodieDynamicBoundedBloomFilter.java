@@ -31,6 +31,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 /**
+ *   Hoodie 的动态 布隆有界布隆过滤器。 这主要基于 Hadoop 的 DynamicBloomFilter，但动态扩展的条目数量有限。
+ *   一旦添加的条目达到界限，可能无法保证误报率。
  * Hoodie's dynamic bloom bounded bloom filter. This is based largely on Hadoop's DynamicBloomFilter, but with a bound
  * on amount of entries to dynamically expand to. Once the entries added reach the bound, false positive ratio may not
  * be guaranteed.

@@ -450,7 +450,7 @@ public class HoodieAvroUtils {
   }
 
   /**
-   * Obtain value of the provided field, denoted by dot notation. e.g: a.b.c
+   * Obtain value of the provided field, denoted by dot notation. e.g: a.b.c    获取提供的字段的值，用点表示法表示。 例如：a.b.c
    */
   public static Object getNestedFieldVal(GenericRecord record, String fieldName, boolean returnNullIfNotFound) {
     String[] parts = fieldName.split("\\.");

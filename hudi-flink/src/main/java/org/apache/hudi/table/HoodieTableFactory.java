@@ -313,7 +313,9 @@ public class HoodieTableFactory implements DynamicTableSourceFactory, DynamicTab
   private static void inferAvroSchema(Configuration conf, LogicalType rowType) {
     if (!conf.getOptional(FlinkOptions.SOURCE_AVRO_SCHEMA_PATH).isPresent()
         && !conf.getOptional(FlinkOptions.SOURCE_AVRO_SCHEMA).isPresent()) {
+
       String inferredSchema = AvroSchemaConverter.convertToSchema(rowType).toString();
+
       conf.setString(FlinkOptions.SOURCE_AVRO_SCHEMA, inferredSchema);
     }
   }

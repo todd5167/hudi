@@ -39,10 +39,13 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
+ *
+ *   将一个checkpoint数据缓冲区数据分配到桶中。
  * Bucket assigner that assigns the data buffer of one checkpoint into buckets.
  *
  * <p>This assigner assigns the record one by one.
  * If the record is an update, checks and reuse existing UPDATE bucket or generates a new one;
+ *
  * If the record is an insert, checks the record partition for small files first, try to find a small file
  * that has space to append new records and reuse the small file's data bucket, if
  * there is no small file(or no left space for new records), generates an INSERT bucket.
@@ -102,7 +105,7 @@ public class BucketAssigner implements AutoCloseable {
       int taskID,
       int maxParallelism,
       int numTasks,
-      WriteProfile profile,
+      WriteProfile profile,    //  mor表使用 DeltaWriteProfile
       HoodieWriteConfig config) {
     this.taskID = taskID;
     this.maxParallelism = maxParallelism;
@@ -123,8 +126,16 @@ public class BucketAssigner implements AutoCloseable {
     bucketInfoMap.clear();
   }
 
+  /**
+   *   record 内容发生变更， 为当前record指定 fileId
+   * @param partitionPath
+   * @param fileIdHint  从旧状态中带过来的  fileId
+   * @return
+   */
   public BucketInfo addUpdate(String partitionPath, String fileIdHint) {
+    //   生成新的BucketKey， partitionPath_fileId
     final String key = StreamerUtil.generateBucketKey(partitionPath, fileIdHint);
+
     if (!bucketInfoMap.containsKey(key)) {
       BucketInfo bucketInfo = new BucketInfo(BucketType.UPDATE, fileIdHint, partitionPath);
       bucketInfoMap.put(key, bucketInfo);
@@ -133,15 +144,26 @@ public class BucketAssigner implements AutoCloseable {
     return bucketInfoMap.get(key);
   }
 
+  /**
+   *   从索引中未找到当前数据则分配桶
+   *  1. 从历史FsSystem 中获取 small file
+   *  2. 重新创建的 newFileAssignStates
+   *
+   * @param partitionPath
+   * @return
+   */
   public BucketInfo addInsert(String partitionPath) {
     // for new inserts, compute buckets depending on how many records we have for each partition
     SmallFileAssign smallFileAssign = getSmallFileAssign(partitionPath);
 
     // first try packing this into one of the smallFiles
+    // 从历史的small file 中选择一个
     if (smallFileAssign != null && smallFileAssign.assign()) {
+      //  分配一个可用的 small File
       return new BucketInfo(BucketType.UPDATE, smallFileAssign.getFileId(), partitionPath);
     }
 
+    // 当前分区没有可用的  smallFile 或者 所有smallFile 都不能写入（已经满了）, 则会重新创建
     // if we have anything more, create new insert buckets, like normal
     if (newFileAssignStates.containsKey(partitionPath)) {
       NewFileAssignState newFileAssignState = newFileAssignStates.get(partitionPath);
@@ -164,11 +186,16 @@ public class BucketAssigner implements AutoCloseable {
         return new BucketInfo(BucketType.UPDATE, newFileAssignState.fileId, partitionPath);
       }
     }
+
+    // 创建新的 fieldid
     BucketInfo bucketInfo = new BucketInfo(BucketType.INSERT, createFileIdOfThisTask(), partitionPath);
     final String key = StreamerUtil.generateBucketKey(partitionPath, bucketInfo.getFileIdPrefix());
     bucketInfoMap.put(key, bucketInfo);
+
+    // 创建 FileAssign State
     NewFileAssignState newFileAssignState = new NewFileAssignState(bucketInfo.getFileIdPrefix(), writeProfile.getRecordsPerBucket());
     newFileAssignState.assign();
+
     newFileAssignStates.put(partitionPath, newFileAssignState);
     return bucketInfo;
   }
@@ -177,12 +204,18 @@ public class BucketAssigner implements AutoCloseable {
     if (smallFileAssignMap.containsKey(partitionPath)) {
       return smallFileAssignMap.get(partitionPath);
     }
-    List<SmallFile> smallFiles = smallFilesOfThisTask(writeProfile.getSmallFiles(partitionPath));
+    // 读取当前分区下的所有小文件，根据Parquet 文件大小来判断
+    List<SmallFile> smallFilesByPartition = writeProfile.getSmallFiles(partitionPath);
+
+    // 从SmallFile 中选择能shuffle 到当前task的 file。
+    List<SmallFile> smallFiles = smallFilesOfThisTask(smallFilesByPartition);
+
     if (smallFiles.size() > 0) {
       LOG.info("For partitionPath : " + partitionPath + " Small Files => " + smallFiles);
       SmallFileAssignState[] states = smallFiles.stream()
           .map(smallFile -> new SmallFileAssignState(config.getParquetMaxFileSize(), smallFile, writeProfile.getAvgSize()))
           .toArray(SmallFileAssignState[]::new);
+
       SmallFileAssign assign = new SmallFileAssign(states);
       smallFileAssignMap.put(partitionPath, assign);
       return assign;
@@ -216,8 +249,13 @@ public class BucketAssigner implements AutoCloseable {
     return KeyGroupRangeAssignment.assignKeyToParallelOperator(fileId, maxParallelism, numTasks) == taskID;
   }
 
+  /**
+   *  创建新的fileID，并且当前 file id shuffle后能被分配到当前task
+   * @return
+   */
   @VisibleForTesting
   public String createFileIdOfThisTask() {
+
     String newFileIdPfx = FSUtils.createNewFileIdPfx();
     while (!fileIdOfThisTask(newFileIdPfx)) {
       newFileIdPfx = FSUtils.createNewFileIdPfx();
@@ -239,12 +277,14 @@ public class BucketAssigner implements AutoCloseable {
   }
 
   /**
+   *   将记录分配给一个分区中的一个小文件
    * Assigns the record to one of the small files under one partition.
    *
    * <p> The tool is initialized with an array of {@link SmallFileAssignState}s.
    * A pointer points to the current small file we are ready to assign,
    * if the current small file can not be assigned anymore (full assigned), the pointer
    * move to next small file.
+   *    指针指向准备分配的当前小文件，如果当前小文件不能完成分配，则指向下一个小文件。
    * <pre>
    *       |  ->
    *       V
@@ -287,12 +327,13 @@ public class BucketAssigner implements AutoCloseable {
   }
 
   /**
+   *  小文件的候选桶状态。 它记录了存储桶可以追加的记录总数和当前分配的记录数。
    * Candidate bucket state for small file. It records the total number of records
    * that the bucket can append and the current number of assigned records.
    */
   private static class SmallFileAssignState {
-    long assigned;
-    long totalUnassigned;
+    long assigned;  //  已经分配的数据条数
+    long totalUnassigned;  // 总共未分配的数据条数
     final String fileId;
 
     SmallFileAssignState(long parquetMaxFileSize, SmallFile smallFile, long averageRecordSize) {
@@ -317,6 +358,7 @@ public class BucketAssigner implements AutoCloseable {
   }
 
   /**
+   *    它记录了存储桶可以追加的记录总数和当前分配的记录数。
    * Candidate bucket state for a new file. It records the total number of records
    * that the bucket can append and the current number of assigned records.
    */

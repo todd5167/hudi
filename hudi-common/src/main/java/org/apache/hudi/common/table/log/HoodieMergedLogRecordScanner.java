@@ -42,9 +42,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
+ * 1. 增加 ExternalSpillableMap
+ * 2. merged records 的指标
+ *
  * Scans through all the blocks in a list of HoodieLogFile and builds up a compacted/merged list of records which will
  * be used as a lookup table when merging the base columnar file with the redo log file.
- * <p>
+ *
+ * <p>    如果 readBlockLazily 开启，则不合并，而是继续读取日志块并立即合并所有内容
  * NOTE: If readBlockLazily is turned on, does not merge, instead keeps reading log blocks and merges everything at once
  * This is an optimization to avoid seek() back and forth to read new block (forward seek()) and lazily read content of
  * seen block (reverse and forward seek()) during merge | | Read Block 1 Metadata | | Read Block 1 Data | | | Read Block
@@ -66,8 +70,10 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
   private long numMergedRecordsInLog;
   private long maxMemorySizeInBytes;
 
+  // 存储执行读取和合并日志块所花费的总时间
   // Stores the total time taken to perform reading and merging of log blocks
   private long totalTimeTakenToReadAndMergeBlocks;
+
   // A timer for calculating elapsed time in millis
   public final HoodieTimer timer = new HoodieTimer();
 
@@ -84,6 +90,7 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
         instantRange, withOperationField,
         enableFullScan, partitionName);
     try {
+      // 通过 ExternalSpillableMap 合并不同版本的数据
       // Store merged records for all versions for this log file, set the in-memory footprint to maxInMemoryMapSize
       this.records = new ExternalSpillableMap<>(maxMemorySizeInBytes, spillableMapBasePath, new DefaultSizeEstimator(),
           new HoodieRecordSizeEstimator(readerSchema), diskMapType, isBitCaskDiskMapCompressionEnabled);
@@ -92,6 +99,7 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
       throw new HoodieIOException("IOException when creating ExternalSpillableMap at " + spillableMapBasePath, e);
     }
 
+    //  自动扫描
     if (autoScan) {
       performScan();
     }
@@ -117,6 +125,10 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
     return records.iterator();
   }
 
+  /**
+   *   返回  records
+   * @return
+   */
   public Map<String, HoodieRecord<? extends HoodieRecordPayload>> getRecords() {
     return records;
   }
@@ -132,10 +144,16 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
     return new Builder();
   }
 
+  /**
+   *  将合并后的数据写到 ExternalSpillableMap
+   * @param hoodieRecord Hoodie Record to process
+   * @throws IOException
+   */
   @Override
   protected void processNextRecord(HoodieRecord<? extends HoodieRecordPayload> hoodieRecord) throws IOException {
     String key = hoodieRecord.getRecordKey();
     if (records.containsKey(key)) {
+      // 合并同一个log 文件中的
       // Merge and store the merged record. The HoodieRecordPayload implementation is free to decide what should be
       // done when a delete (empty payload) is encountered before or after an insert/update.
 
@@ -153,6 +171,7 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
 
   @Override
   protected void processNextDeletedKey(HoodieKey hoodieKey) {
+    // 将要删除的 hoodieKey 对应的value 替换为 EmptyPayload
     records.put(hoodieKey.getRecordKey(), SpillableMapUtils.generateEmptyPayload(hoodieKey.getRecordKey(),
         hoodieKey.getPartitionPath(), getPayloadClassFQN()));
   }

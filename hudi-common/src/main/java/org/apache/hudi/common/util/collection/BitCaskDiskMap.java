@@ -58,7 +58,8 @@ import java.util.zip.InflaterInputStream;
 
 /**
  * This class provides a disk spillable only map implementation. All of the data is currenly written to one file,
- * without any rollover support. It uses the following : 1) An in-memory map that tracks the key-> latest ValueMetadata.
+ * without any rollover support. It uses the following :
+ * 1) An in-memory map that tracks the key-> latest ValueMetadata.
  * 2) Current position in the file NOTE : Only String.class type supported for Key
  *
  * Inspired by https://github.com/basho/bitcask

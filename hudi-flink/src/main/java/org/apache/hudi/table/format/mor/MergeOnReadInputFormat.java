@@ -179,13 +179,14 @@ public class MergeOnReadInputFormat
         this.iterator = new BaseFileOnlyIterator(getRequiredSchemaReader(split.getBasePath().get()));
       }
     } else if (!split.getBasePath().isPresent()) {
-      // log files only
+      // base file 未出现 log files only
       if (OptionsResolver.emitChangelog(conf)) {
         this.iterator = new LogFileOnlyIterator(getUnMergedLogFileIterator(split));
       } else {
         this.iterator = new LogFileOnlyIterator(getLogFileIterator(split));
       }
     } else if (split.getMergeType().equals(FlinkOptions.REALTIME_SKIP_MERGE)) {
+      // 跳过合并
       this.iterator = new SkipMergeIterator(
           getRequiredSchemaReader(split.getBasePath().get()),
           getLogFileIterator(split));
@@ -210,6 +211,7 @@ public class MergeOnReadInputFormat
           + "spark partition Index: " + split.getSplitNumber()
           + "merge type: " + split.getMergeType());
     }
+
     mayShiftInputSplit(split);
   }
 
@@ -269,6 +271,7 @@ public class MergeOnReadInputFormat
   // -------------------------------------------------------------------------
 
   /**
+   *  将输入拆分按其使用的记录数移动。
    * Shifts the input split by its consumed records number.
    *
    * <p>Note: This action is time-consuming.
@@ -322,6 +325,7 @@ public class MergeOnReadInputFormat
     final GenericRecordBuilder recordBuilder = new GenericRecordBuilder(requiredSchema);
     final AvroToRowDataConverters.AvroToRowDataConverter avroToRowDataConverter =
         AvroToRowDataConverters.createRowConverter(tableState.getRequiredRowType());
+    // record scanner
     final HoodieMergedLogRecordScanner scanner = FormatUtils.logScanner(split, tableSchema, hadoopConf, conf.getBoolean(FlinkOptions.CHANGELOG_ENABLED));
     final Iterator<String> logRecordsKeyIterator = scanner.getRecords().keySet().iterator();
     final int[] pkOffset = tableState.getPkOffsetsInRequired();
@@ -402,6 +406,7 @@ public class MergeOnReadInputFormat
     final GenericRecordBuilder recordBuilder = new GenericRecordBuilder(requiredSchema);
     final AvroToRowDataConverters.AvroToRowDataConverter avroToRowDataConverter =
         AvroToRowDataConverters.createRowConverter(tableState.getRequiredRowType());
+
     final FormatUtils.BoundedMemoryRecords records = new FormatUtils.BoundedMemoryRecords(split, tableSchema, hadoopConf);
     final Iterator<HoodieRecord<?>> recordsIterator = records.getRecordsIterator();
 

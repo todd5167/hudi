@@ -64,6 +64,7 @@ public class ViewStorageProperties {
   public static FileSystemViewStorageConfig loadFromProperties(String basePath) {
     Path propertyPath = getPropertiesFilePath(basePath);
     LOG.info("Loading filesystem view storage properties from " + propertyPath);
+
     FileSystem fs = FSUtils.getFs(basePath, StreamerUtil.getHadoopConf());
     Properties props = new Properties();
     try {

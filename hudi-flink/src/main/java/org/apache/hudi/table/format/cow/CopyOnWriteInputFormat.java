@@ -128,6 +128,12 @@ public class CopyOnWriteInputFormat extends FileInputFormat<RowData> {
     this.currentReadCount = 0L;
   }
 
+  /**
+   *  数据分片策略
+   * @param minNumSplits
+   * @return
+   * @throws IOException
+   */
   @Override
   public FileInputSplit[] createInputSplits(int minNumSplits) throws IOException {
     if (minNumSplits < 1) {

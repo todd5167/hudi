@@ -27,6 +27,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
+ *   命令块向扫描仪发出特定命令。  跳过哪些块
  * Command block issues a specific command to the scanner.
  */
 public class HoodieCommandBlock extends HoodieLogBlock {
@@ -48,6 +49,7 @@ public class HoodieCommandBlock extends HoodieLogBlock {
       Option<HoodieLogBlockContentLocation> blockContentLocation, Map<HeaderMetadataType, String> header,
       Map<HeaderMetadataType, String> footer) {
     super(header, footer, blockContentLocation, content, inputStream, readBlockLazily);
+
     this.type =
         HoodieCommandBlockTypeEnum.values()[Integer.parseInt(header.get(HeaderMetadataType.COMMAND_BLOCK_TYPE))];
   }
@@ -63,6 +65,7 @@ public class HoodieCommandBlock extends HoodieLogBlock {
 
   @Override
   public byte[] getContentBytes() {
+    // 返回0字节
     return new byte[0];
   }
 

@@ -114,9 +114,9 @@
     <http.version>4.4.1</http.version>
     <spark.version>${spark2.version}</spark.version>
     <sparkbundle.version>${spark2bundle.version}</sparkbundle.version>
-    <flink.version>1.13.1</flink.version>
+    <flink.version>1.13.3</flink.version>
     <spark2.version>2.4.4</spark2.version>
-    <spark3.version>3.1.2</spark3.version>
+    <spark3.version>3.0.1</spark3.version>
     <spark2bundle.version></spark2bundle.version>
     <spark3bundle.version>3</spark3bundle.version>
     <hudi.spark.module>hudi-spark2</hudi.spark.module>
@@ -214,42 +214,42 @@
           </execution>
         </executions>
       </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-checkstyle-plugin</artifactId>
-        <version>3.0.0</version>
-        <dependencies>
-          <dependency>
-            <groupId>com.puppycrawl.tools</groupId>
-            <artifactId>checkstyle</artifactId>
-            <version>8.18</version>
-          </dependency>
-        </dependencies>
-        <configuration>
-          <consoleOutput>true</consoleOutput>
-          <encoding>UTF-8</encoding>
-          <configLocation>style/checkstyle.xml</configLocation>
-          <suppressionsLocation>style/checkstyle-suppressions.xml</suppressionsLocation>
-          <suppressionsFileExpression>checkstyle.suppressions.file</suppressionsFileExpression>
-          <failOnViolation>true</failOnViolation>
-          <violationSeverity>warning</violationSeverity>
-          <includeTestSourceDirectory>true</includeTestSourceDirectory>
-          <sourceDirectories>
-            <sourceDirectory>${project.build.sourceDirectory}</sourceDirectory>
-          </sourceDirectories>
-          <!-- NOTE: This property is only available in Maven >= 3.3.1 -->
-          <propertyExpansion>basedir=${maven.multiModuleProjectDirectory}</propertyExpansion>
-          <excludes>**\/generated-sources\/</excludes>
-        </configuration>
-        <executions>
-          <execution>
-            <phase>compile</phase>
-            <goals>
-              <goal>check</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
+<!--      <plugin>-->
+<!--        <groupId>org.apache.maven.plugins</groupId>-->
+<!--        <artifactId>maven-checkstyle-plugin</artifactId>-->
+<!--        <version>3.0.0</version>-->
+<!--        <dependencies>-->
+<!--          <dependency>-->
+<!--            <groupId>com.puppycrawl.tools</groupId>-->
+<!--            <artifactId>checkstyle</artifactId>-->
+<!--            <version>8.18</version>-->
+<!--          </dependency>-->
+<!--        </dependencies>-->
+<!--        <configuration>-->
+<!--          <consoleOutput>true</consoleOutput>-->
+<!--          <encoding>UTF-8</encoding>-->
+<!--          <configLocation>style/checkstyle.xml</configLocation>-->
+<!--          <suppressionsLocation>style/checkstyle-suppressions.xml</suppressionsLocation>-->
+<!--          <suppressionsFileExpression>checkstyle.suppressions.file</suppressionsFileExpression>-->
+<!--          <failOnViolation>true</failOnViolation>-->
+<!--          <violationSeverity>warning</violationSeverity>-->
+<!--          <includeTestSourceDirectory>true</includeTestSourceDirectory>-->
+<!--          <sourceDirectories>-->
+<!--            <sourceDirectory>${project.build.sourceDirectory}</sourceDirectory>-->
+<!--          </sourceDirectories>-->
+<!--          &lt;!&ndash; NOTE: This property is only available in Maven >= 3.3.1 &ndash;&gt;-->
+<!--          <propertyExpansion>basedir=${maven.multiModuleProjectDirectory}</propertyExpansion>-->
+<!--          <excludes>**\/generated-sources\/</excludes>-->
+<!--        </configuration>-->
+<!--        <executions>-->
+<!--          <execution>-->
+<!--            <phase>compile</phase>-->
+<!--            <goals>-->
+<!--              <goal>check</goal>-->
+<!--            </goals>-->
+<!--          </execution>-->
+<!--        </executions>-->
+<!--      </plugin>-->
 <!--
       See https://jira.apache.org/jira/browse/HUDI-304
       <plugin>

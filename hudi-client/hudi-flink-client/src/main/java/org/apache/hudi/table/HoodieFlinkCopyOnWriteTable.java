@@ -74,11 +74,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
+ *   实现一个高度读取优化的 Hoodie Table，其中所有数据都存储在基本文件中，读取放大为零。
+ *
  * Implementation of a very heavily read-optimized Hoodie Table where, all data is stored in base files, with
  * zero read amplification.
  * <p>
+ *           生成新文件，块对齐到所需大小（或）与最小的现有文件合并，以扩展它
  * INSERTS - Produce new files, block aligned to desired size (or) Merge with the smallest existing file, to expand it
  * <p>
+ *            生成文件的新版本，只需用新值替换更新的记录
  * UPDATES - Produce a new version of the file, just replacing the updated records with new values
  */
 public class HoodieFlinkCopyOnWriteTable<T extends HoodieRecordPayload>
@@ -112,6 +116,7 @@ public class HoodieFlinkCopyOnWriteTable<T extends HoodieRecordPayload>
       HoodieWriteHandle<?, ?, ?, ?> writeHandle,
       String instantTime,
       List<HoodieRecord<T>> records) {
+    //  upsert
     return new FlinkUpsertCommitActionExecutor<>(context, writeHandle, config, this, instantTime, records).execute();
   }
 
@@ -156,7 +161,13 @@ public class HoodieFlinkCopyOnWriteTable<T extends HoodieRecordPayload>
     return new FlinkDeleteCommitActionExecutor<>(context, writeHandle, config, this, instantTime, keys).execute();
   }
 
+  // -------------------------------------------------------------------------
+  //  Used for Prepped record
+  // -------------------------------------------------------------------------
+
+
   /**
+   *   在提供的 InstantTime 将给定的准备记录更新到 Hoodie 表中。
    * Upserts the given prepared records into the Hoodie table, at the supplied instantTime.
    *
    * <p>This implementation requires that the input records are already tagged, and de-duped if needed.
@@ -403,7 +414,9 @@ public class HoodieFlinkCopyOnWriteTable<T extends HoodieRecordPayload>
       Map<String, HoodieRecord<? extends HoodieRecordPayload>> recordMap) {
     HoodieCreateHandle<?, ?, ?, ?> createHandle =
         new HoodieCreateHandle(config, instantTime, this, partitionPath, fileId, recordMap, taskContextSupplier);
+
     createHandle.write();
+
     return Collections.singletonList(createHandle.close()).iterator();
   }
 }

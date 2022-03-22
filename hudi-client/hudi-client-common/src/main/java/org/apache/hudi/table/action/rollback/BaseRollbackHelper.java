@@ -102,6 +102,7 @@ public class BaseRollbackHelper implements Serializable {
   }
 
   /**
+   *  可能是删除相关的文件并收集统计信息或仅收集统计信息。
    * May be delete interested files and collect stats or collect stats only.
    *
    * @param context           instance of {@link HoodieEngineContext} to use.
@@ -115,13 +116,17 @@ public class BaseRollbackHelper implements Serializable {
                                                                     List<SerializableHoodieRollbackRequest> rollbackRequests,
                                                                     boolean doDelete, int numPartitions) {
     return context.flatMap(rollbackRequests, (SerializableFunction<SerializableHoodieRollbackRequest, Stream<Pair<String, HoodieRollbackStat>>>) rollbackRequest -> {
+
       List<String> filesToBeDeleted = rollbackRequest.getFilesToBeDeleted();
+
       if (!filesToBeDeleted.isEmpty()) {
+        //  删除数据文件
         List<HoodieRollbackStat> rollbackStats = deleteFiles(metaClient, filesToBeDeleted, doDelete);
         List<Pair<String, HoodieRollbackStat>> partitionToRollbackStats = new ArrayList<>();
         rollbackStats.forEach(entry -> partitionToRollbackStats.add(Pair.of(entry.getPartitionPath(), entry)));
         return partitionToRollbackStats.stream();
       } else if (!rollbackRequest.getLogBlocksToBeDeleted().isEmpty()) {
+        // 删除日志文件
         Map<String, Long> logFilesToBeDeleted = rollbackRequest.getLogBlocksToBeDeleted();
         String fileId = rollbackRequest.getFileId();
         String latestBaseInstant = rollbackRequest.getLatestBaseInstant();
@@ -135,6 +140,7 @@ public class BaseRollbackHelper implements Serializable {
         }
         HoodieLogFormat.Writer writer = null;
         try {
+          //   数据写入 writerHandle
           writer = HoodieLogFormat.newWriterBuilder()
               .onParentPath(FSUtils.getPartitionPath(metaClient.getBasePath(), rollbackRequest.getPartitionPath()))
               .withFileId(fileId)
@@ -144,8 +150,14 @@ public class BaseRollbackHelper implements Serializable {
 
           // generate metadata
           if (doDelete) {
+            /**
+             *   对append 数据插入header数据信息，表示要跳过的时间戳范围.
+             *        （开始）TARGET_INSTANT_TIME:  最近一次commit成功的 instant 作为删除的开始
+             *        （结束）INSTANT_TIME:  最新instant 作为删除的结束
+             */
             Map<HoodieLogBlock.HeaderMetadataType, String> header = generateHeader(instantToRollback.getTimestamp());
-            // if update belongs to an existing log file
+            // if update belongs to an existing log file      更新属于现有日志文件的数据
+            //  追加数据
             writer.appendBlock(new HoodieCommandBlock(header));
           }
         } catch (IOException | InterruptedException io) {
@@ -212,10 +224,12 @@ public class BaseRollbackHelper implements Serializable {
   protected Map<HoodieLogBlock.HeaderMetadataType, String> generateHeader(String commit) {
     // generate metadata
     Map<HoodieLogBlock.HeaderMetadataType, String> header = new HashMap<>(3);
+
     header.put(HoodieLogBlock.HeaderMetadataType.INSTANT_TIME, metaClient.getActiveTimeline().lastInstant().get().getTimestamp());
     header.put(HoodieLogBlock.HeaderMetadataType.TARGET_INSTANT_TIME, commit);
     header.put(HoodieLogBlock.HeaderMetadataType.COMMAND_BLOCK_TYPE,
         String.valueOf(HoodieCommandBlock.HoodieCommandBlockTypeEnum.ROLLBACK_PREVIOUS_BLOCK.ordinal()));
+
     return header;
   }
 

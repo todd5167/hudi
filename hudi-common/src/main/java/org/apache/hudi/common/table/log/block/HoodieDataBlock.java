@@ -34,13 +34,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
+ *  DataBlock 包含使用与基本文件格式(avro)兼容的格式序列化的记录列表。
  * DataBlock contains a list of records serialized using formats compatible with the base file format.
+ *
+ * 对于每种基本文件格式，都有相应的 DataBlock 格式。
  * For each base file format there is a corresponding DataBlock format.
  *
  * The Datablock contains:
- *   1. Data Block version
- *   2. Total number of records in the block
- *   3. Actual serialized content of the records
+ *   1. Data Block version   (版本)
+ *   2. Total number of records in the block （记录条数）
+ *   3. Actual serialized content of the records （序列化后的数据内容）
  */
 public abstract class HoodieDataBlock extends HoodieLogBlock {
 
@@ -48,9 +51,11 @@ public abstract class HoodieDataBlock extends HoodieLogBlock {
   protected Schema schema;
   protected String keyField;
 
-  public HoodieDataBlock(@Nonnull Map<HeaderMetadataType, String> logBlockHeader,
+  public HoodieDataBlock(
+      @Nonnull Map<HeaderMetadataType, String> logBlockHeader,
       @Nonnull Map<HeaderMetadataType, String> logBlockFooter,
-      @Nonnull Option<HoodieLogBlockContentLocation> blockContentLocation, @Nonnull Option<byte[]> content,
+      @Nonnull Option<HoodieLogBlockContentLocation> blockContentLocation,
+      @Nonnull Option<byte[]> content,
       FSDataInputStream inputStream, boolean readBlockLazily) {
     super(logBlockHeader, logBlockFooter, blockContentLocation, content, inputStream, readBlockLazily);
     this.keyField = HoodieRecord.RECORD_KEY_METADATA_FIELD;

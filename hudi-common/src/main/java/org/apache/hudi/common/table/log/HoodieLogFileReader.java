@@ -54,6 +54,11 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
+ *   1. 读取log文件，返回Block
+ *
+ *
+ *  扫描日志文件并在日志文件上提供块级迭代器 将整个块内容加载到内存中 可以发出 DataBlock、CommandBlock、DeleteBlock 或 CorruptBlock（如果找到）。
+ *
  * Scans a log file and provides block level iterator on the log file Loads the entire block contents in memory Can emit
  * either a DataBlock, CommandBlock, DeleteBlock or CorruptBlock (if one is found).
  */
@@ -90,6 +95,7 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
   public HoodieLogFileReader(FileSystem fs, HoodieLogFile logFile, Schema readerSchema, int bufferSize,
                              boolean readBlockLazily, boolean reverseReader, boolean enableInlineReading,
                              String keyField) throws IOException {
+    // 最大读 默认16M
     FSDataInputStream fsDataInputStream = fs.open(logFile.getPath(), bufferSize);
     this.logFile = logFile;
     this.inputStream = getFSDataInputStream(fsDataInputStream, fs, bufferSize);
@@ -109,6 +115,7 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
   }
 
   /**
+   *    通过包装所需的输入流来获取要使用的正确 {@link FSDataInputStream}。
    * Fetch the right {@link FSDataInputStream} to be used by wrapping with required input streams.
    * @param fsDataInputStream original instance of {@link FSDataInputStream}.
    * @param fs instance of {@link FileSystem} in use.
@@ -116,11 +123,6 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
    * @return the right {@link FSDataInputStream} as required.
    */
   private FSDataInputStream getFSDataInputStream(FSDataInputStream fsDataInputStream, FileSystem fs, int bufferSize) {
-    if (FSUtils.isGCSFileSystem(fs)) {
-      // in GCS FS, we might need to interceptor seek offsets as we might get EOF exception
-      return new SchemeAwareFSDataInputStream(getFSDataInputStreamForGCS(fsDataInputStream, bufferSize), true);
-    }
-
     if (fsDataInputStream.getWrappedStream() instanceof FSInputStream) {
       return new TimedFSDataInputStream(logFile.getPath(), new FSDataInputStream(
           new BufferedFSInputStream((FSInputStream) fsDataInputStream.getWrappedStream(), bufferSize)));
@@ -128,33 +130,6 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
 
     // fsDataInputStream.getWrappedStream() maybe a BufferedFSInputStream
     // need to wrap in another BufferedFSInputStream the make bufferSize work?
-    return fsDataInputStream;
-  }
-
-  /**
-   * GCS FileSystem needs some special handling for seek and hence this method assists to fetch the right {@link FSDataInputStream} to be
-   * used by wrapping with required input streams.
-   * @param fsDataInputStream original instance of {@link FSDataInputStream}.
-   * @param bufferSize buffer size to be used.
-   * @return the right {@link FSDataInputStream} as required.
-   */
-  private FSDataInputStream getFSDataInputStreamForGCS(FSDataInputStream fsDataInputStream, int bufferSize) {
-    // incase of GCS FS, there are two flows.
-    // a. fsDataInputStream.getWrappedStream() instanceof FSInputStream
-    // b. fsDataInputStream.getWrappedStream() not an instanceof FSInputStream, but an instance of FSDataInputStream.
-    // (a) is handled in the first if block and (b) is handled in the second if block. If not, we fallback to original fsDataInputStream
-    if (fsDataInputStream.getWrappedStream() instanceof FSInputStream) {
-      return new TimedFSDataInputStream(logFile.getPath(), new FSDataInputStream(
-          new BufferedFSInputStream((FSInputStream) fsDataInputStream.getWrappedStream(), bufferSize)));
-    }
-
-    if (fsDataInputStream.getWrappedStream() instanceof FSDataInputStream
-        && ((FSDataInputStream) fsDataInputStream.getWrappedStream()).getWrappedStream() instanceof FSInputStream) {
-      FSInputStream inputStream = (FSInputStream)((FSDataInputStream) fsDataInputStream.getWrappedStream()).getWrappedStream();
-      return new TimedFSDataInputStream(logFile.getPath(),
-          new FSDataInputStream(new BufferedFSInputStream(inputStream, bufferSize)));
-    }
-
     return fsDataInputStream;
   }
 
@@ -230,6 +205,7 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
     // TODO - have a max block size and reuse this buffer in the ByteBuffer
     // (hard to guess max block size for now)
     long contentPosition = inputStream.getPos();
+
     byte[] content = HoodieLogBlock.readOrSkipContent(inputStream, contentLength, readBlockLazily);
 
     // 7. Read footer if any
@@ -239,7 +215,7 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
     }
 
     // 8. Read log block length, if present. This acts as a reverse pointer when traversing a
-    // log file in reverse
+    // log file in reverse      这在反向遍历日志文件时充当反向指针
     @SuppressWarnings("unused")
     long logBlockLength = 0;
     if (nextBlockVersion.hasLogBlockLength()) {
@@ -255,6 +231,7 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
         if (nextBlockVersion.getVersion() == HoodieLogFormatVersion.DEFAULT_VERSION) {
           return HoodieAvroDataBlock.getBlock(content, readerSchema);
         } else {
+          // 默认版本号1
           return new HoodieAvroDataBlock(logFile, inputStream, Option.ofNullable(content), readBlockLazily,
               contentPosition, contentLength, blockEndPos, readerSchema, header, footer, keyField);
         }
@@ -276,17 +253,31 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
   private HoodieLogBlock createCorruptBlock() throws IOException {
     LOG.info("Log " + logFile + " has a corrupted block at " + inputStream.getPos());
     long currentPos = inputStream.getPos();
+    //  通过读取magic 来获取下一个 block
     long nextBlockOffset = scanForNextAvailableBlockOffset();
+
+    //  倒回到初始开始并读取损坏的字节直到 nextBlockOffset
     // Rewind to the initial start and read corrupted bytes till the nextBlockOffset
     inputStream.seek(currentPos);
+
     LOG.info("Next available block in " + logFile + " starts at " + nextBlockOffset);
+    //  错误的block 大小
     int corruptedBlockSize = (int) (nextBlockOffset - currentPos);
     long contentPosition = inputStream.getPos();
+
+    // corrupted Bytes
     byte[] corruptedBytes = HoodieLogBlock.readOrSkipContent(inputStream, corruptedBlockSize, readBlockLazily);
+
     return HoodieCorruptBlock.getBlock(logFile, inputStream, Option.ofNullable(corruptedBytes), readBlockLazily,
         contentPosition, corruptedBlockSize, corruptedBlockSize, new HashMap<>(), new HashMap<>());
   }
 
+  /**
+   *   对比前后两个 block size
+   * @param blocksize
+   * @return
+   * @throws IOException
+   */
   private boolean isBlockCorrupt(int blocksize) throws IOException {
     long currentPos = inputStream.getPos();
     try {
@@ -301,10 +292,13 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
       return true;
     }
 
-    // check if the blocksize mentioned in the footer is the same as the header; by seeking back the length of a long
+    // check if the blocksize mentioned in the footer is the same as the header;    比较起始填充的blocksize 是否一致
+    // by seeking back the length of a long
     // the backward seek does not incur additional IO as {@link org.apache.hadoop.hdfs.DFSInputStream#seek()}
     // only moves the index. actual IO happens on the next read operation
+    //  移动到 footer 下的 block length 区域
     inputStream.seek(inputStream.getPos() - Long.BYTES);
+
     // Block size in the footer includes the magic header, which the header does not include.
     // So we have to shorten the footer block size by the size of magic hash
     long blockSizeFromFooter = inputStream.readLong() - magicBuffer.length;
@@ -327,6 +321,11 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
     }
   }
 
+  /**
+   *  当前block error时， 读取下一个可用的block
+   * @return
+   * @throws IOException
+   */
   private long scanForNextAvailableBlockOffset() throws IOException {
     // Make buffer large enough to scan through the file as quick as possible especially if it is on S3/GCS.
     byte[] dataBuf = new byte[BLOCK_SCAN_READ_BUFFER_SIZE];
@@ -335,19 +334,27 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
       long currentPos = inputStream.getPos();
       try {
         Arrays.fill(dataBuf, (byte) 0);
+        // 读1M数据到缓存
         inputStream.readFully(dataBuf, 0, dataBuf.length);
       } catch (EOFException e) {
+        //  数据流未填满
         eof = true;
       }
+      // 通过 MAGIC 在dataBuf 的偏移量
       long pos = Bytes.indexOf(dataBuf, HoodieLogFormat.MAGIC);
       if (pos >= 0) {
+        // 返回 magic 位置
         return currentPos + pos;
       }
+
       if (eof) {
+        // 读取异常位置
         return inputStream.getPos();
       }
+      // 当前未匹配到MAGIC，继续向下查找。- HoodieLogFormat.MAGIC.length 防止最后的自己为 #HUDI
       inputStream.seek(currentPos + dataBuf.length - HoodieLogFormat.MAGIC.length);
     }
+
   }
 
   @Override
@@ -367,6 +374,7 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
   @Override
   public boolean hasNext() {
     try {
+      // 1. read Magic
       return readMagic();
     } catch (IOException e) {
       throw new HoodieIOException("IOException when reading logfile " + logFile, e);

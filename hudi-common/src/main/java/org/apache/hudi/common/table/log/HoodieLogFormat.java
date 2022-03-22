@@ -36,10 +36,15 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
+ *   hoodie log 文件格式。 文件格式由每个用 MAGIC 同步标记分隔的块（block）组成。，
+ *
  * File Format for Hoodie Log Files. The File Format consists of blocks each separated with a MAGIC sync marker. A Block
- * can either be a Data block, Command block or Delete Block. Data Block - Contains log records serialized as Avro
- * Binary Format Command Block - Specific commands like ROLLBACK_PREVIOUS-BLOCK - Tombstone for the previously written
- * block Delete Block - List of keys to delete - tombstone for keys
+ * can either be a Data block, Command block or Delete Block.
+ *    Data Block - Contains log records serialized as Avro
+ *    Binary Format Command Block
+ *      - Specific commands like ROLLBACK_PREVIOUS-BLOCK
+ *      - Tombstone for the previously written block Delete Block
+ *      - List of keys to delete tombstone for keys
  */
 public interface HoodieLogFormat {
 
@@ -253,6 +258,7 @@ public interface HoodieLogFormat {
       Path logPath = new Path(parentPath,
           FSUtils.makeLogFileName(logFileId, fileExtension, instantTime, logVersion, logWriteToken));
       LOG.info("HoodieLogFile on path " + logPath);
+
       HoodieLogFile logFile = new HoodieLogFile(logPath, fileLen);
 
       if (bufferSize == null) {

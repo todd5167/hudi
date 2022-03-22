@@ -181,12 +181,14 @@ public class HoodieTableSource implements
               conf, FilePathUtils.toFlinkPath(path), maxCompactionMemoryInBytes, getRequiredPartitionPaths());
           InputFormat<RowData, ?> inputFormat = getInputFormat(true);
           OneInputStreamOperatorFactory<MergeOnReadInputSplit, RowData> factory = StreamReadOperator.factory((MergeOnReadInputFormat) inputFormat);
+
           SingleOutputStreamOperator<RowData> source = execEnv.addSource(monitoringFunction, getSourceOperatorName("split_monitor"))
               .setParallelism(1)
               .transform("split_reader", typeInfo, factory)
               .setParallelism(conf.getInteger(FlinkOptions.READ_TASKS));
           return new DataStreamSource<>(source);
         } else {
+          //  批读
           InputFormatSourceFunction<RowData> func = new InputFormatSourceFunction<>(getInputFormat(), typeInfo);
           DataStreamSource<RowData> source = execEnv.addSource(func, asSummaryString(), typeInfo);
           return source.name(getSourceOperatorName("bounded_source")).setParallelism(conf.getInteger(FlinkOptions.READ_TASKS));
@@ -293,6 +295,7 @@ public class HoodieTableSource implements
   private List<MergeOnReadInputSplit> buildFileIndex() {
     Set<String> requiredPartitionPaths = getRequiredPartitionPaths();
     fileIndex.setPartitionPaths(requiredPartitionPaths);
+
     List<String> relPartitionPaths = fileIndex.getOrBuildPartitionPaths();
     if (relPartitionPaths.size() == 0) {
       return Collections.emptyList();
@@ -305,18 +308,23 @@ public class HoodieTableSource implements
     HoodieTableFileSystemView fsView = new HoodieTableFileSystemView(metaClient,
         // file-slice after pending compaction-requested instant-time is also considered valid
         metaClient.getCommitsAndCompactionTimeline().filterCompletedAndCompactionInstants(), fileStatuses);
+   //  最新commit 时间
     String latestCommit = fsView.getLastInstant().get().getTimestamp();
     final String mergeType = this.conf.getString(FlinkOptions.MERGE_TYPE);
     final AtomicInteger cnt = new AtomicInteger(0);
     // generates one input split for each file group
+
     return relPartitionPaths.stream()
-        .map(relPartitionPath -> fsView.getLatestMergedFileSlicesBeforeOrOn(relPartitionPath, latestCommit)
+        .map(relPartitionPath ->
+            //  获取 latestCommit 之前的文件切片
+            fsView.getLatestMergedFileSlicesBeforeOrOn(relPartitionPath, latestCommit)
             .map(fileSlice -> {
               String basePath = fileSlice.getBaseFile().map(BaseFile::getPath).orElse(null);
               Option<List<String>> logPaths = Option.ofNullable(fileSlice.getLogFiles()
                   .sorted(HoodieLogFile.getLogFileComparator())
                   .map(logFile -> logFile.getPath().toString())
                   .collect(Collectors.toList()));
+
               return new MergeOnReadInputSplit(cnt.getAndAdd(1), basePath, logPaths, latestCommit,
                   metaClient.getBasePath(), maxCompactionMemoryInBytes, mergeType, null);
             }).collect(Collectors.toList()))
@@ -341,25 +349,33 @@ public class HoodieTableSource implements
 
     final String queryType = this.conf.getString(FlinkOptions.QUERY_TYPE);
     switch (queryType) {
+      // snapshot
       case FlinkOptions.QUERY_TYPE_SNAPSHOT:
         final HoodieTableType tableType = HoodieTableType.valueOf(this.conf.getString(FlinkOptions.TABLE_TYPE));
         switch (tableType) {
           case MERGE_ON_READ:
+            //   mor 表读取
             final List<MergeOnReadInputSplit> inputSplits = buildFileIndex();
             if (inputSplits.size() == 0) {
               // When there is no input splits, just return an empty source.
               LOG.warn("No input splits generate for MERGE_ON_READ input format, returns empty collection instead");
               return InputFormats.EMPTY_INPUT_FORMAT;
             }
+            //  log  + parquet
             return mergeOnReadInputFormat(rowType, requiredRowType, tableAvroSchema,
                 rowDataType, inputSplits, false);
+
           case COPY_ON_WRITE:
+            // 只读parquet
             return baseFileOnlyInputFormat();
           default:
             throw new HoodieException("Unexpected table type: " + this.conf.getString(FlinkOptions.TABLE_TYPE));
         }
+        // ro
       case FlinkOptions.QUERY_TYPE_READ_OPTIMIZED:
+        // 只读parquet
         return baseFileOnlyInputFormat();
+        // incremental
       case FlinkOptions.QUERY_TYPE_INCREMENTAL:
         IncrementalInputSplits incrementalInputSplits = IncrementalInputSplits.builder()
             .conf(conf).path(FilePathUtils.toFlinkPath(path))
@@ -440,6 +456,7 @@ public class HoodieTableSource implements
         getParquetConf(this.conf, this.hadoopConf),
         this.conf.getBoolean(FlinkOptions.UTC_TIMEZONE)
     );
+
     format.setFilesFilter(new LatestFileFilter(this.hadoopConf));
     return format;
   }

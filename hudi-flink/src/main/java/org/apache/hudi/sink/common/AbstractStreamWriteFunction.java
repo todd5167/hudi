@@ -136,6 +136,7 @@ public abstract class AbstractStreamWriteFunction<I>
         ));
 
     this.currentInstant = lastPendingInstant();
+    //  恢复状态
     if (context.isRestored()) {
       restoreWriteMetadata();
     } else {
@@ -227,7 +228,9 @@ public abstract class AbstractStreamWriteFunction<I>
    * @return The instant time
    */
   protected String instantToWrite(boolean hasData) {
+    //  最新的 delta commit.inflight instant
     String instant = lastPendingInstant();
+
     // if exactly-once semantics turns on,
     // waits for the checkpoint notification until the checkpoint timeout threshold hits.
     TimeWait timeWait = TimeWait.builder()

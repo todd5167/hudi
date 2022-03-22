@@ -39,7 +39,7 @@ public class FlinkUpsertDeltaCommitActionExecutor<T extends HoodieRecordPayload<
                                               HoodieWriteConfig config,
                                               HoodieTable table,
                                               String instantTime,
-                                              List<HoodieRecord<T>> inputRecords) {
+                                              List<HoodieRecord<T>> inputRecords) {  // 消极记录
     super(context, writeHandle, config, table, instantTime, WriteOperationType.UPSERT);
     this.inputRecords = inputRecords;
   }

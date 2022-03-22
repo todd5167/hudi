@@ -37,9 +37,9 @@ import java.util.List;
 /**
  * A {@link HoodieAppendHandle} that supports APPEND write incrementally(mini-batches).
  *
- * <p>For the first mini-batch, it initializes and sets up the next file path to write,
- * then closes the file writer. The subsequent mini-batches are appended to the same file
- * through a different append handle with same write file name.
+ *
+ * 1. For the first mini-batch, it initializes and sets up the next file path to write, then closes the file writer.
+ * 2. The subsequent mini-batches are appended to the same file through a different append handle with same write file name.
  *
  * <p>The back-up writer may rollover on condition(for e.g, the filesystem does not support append
  * or the file size hits the configured threshold).
@@ -71,6 +71,8 @@ public class FlinkAppendHandle<T extends HoodieRecordPayload, I, K, O>
 
     // Just skip the marker creation if it already exists, the new data would append to
     // the file directly.
+
+    //  创建Append markers文件
     writeMarkers.createIfNotExists(partitionPath, dataFileName, getIOType());
   }
 
@@ -89,6 +91,7 @@ public class FlinkAppendHandle<T extends HoodieRecordPayload, I, K, O>
     // do not use the HoodieRecord operation because hoodie writer has its own
     // INSERT/MERGE bucket for 'UPSERT' semantics. For e.g, a hoodie record with fresh new key
     // and operation HoodieCdcOperation.DELETE would be put into either an INSERT bucket or UPDATE bucket.
+
     return hoodieRecord.getCurrentLocation() != null
         && hoodieRecord.getCurrentLocation().getInstantTime().equals("U");
   }

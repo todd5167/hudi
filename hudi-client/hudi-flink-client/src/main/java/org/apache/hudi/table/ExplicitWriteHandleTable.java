@@ -28,14 +28,19 @@ import org.apache.hudi.table.action.HoodieWriteMetadata;
 
 import java.util.List;
 
-/**
+/***
+ *  对 hoodie table 的操作。 upsert、delete、insert overwrite， insert overwrite table
+ *  通过 HoodieWriteHandle 向 HoodieTable 插入、delete数据。
+ *
  * HoodieTable that need to pass in the
  * {@link org.apache.hudi.io.HoodieWriteHandle} explicitly.
  */
 public interface ExplicitWriteHandleTable<T extends HoodieRecordPayload> {
   /**
+   *  在提供的 instantTime 将一批新记录更新到 Hoodie 表中。
    * Upsert a batch of new records into Hoodie table at the supplied instantTime.
    *
+   *    指定 HoodieWriteHandle，以便对底层文件进行细粒度控制。
    * <p>Specifies the write handle explicitly in order to have fine grained control with
    * the underneath file.
    *
@@ -91,7 +96,7 @@ public interface ExplicitWriteHandleTable<T extends HoodieRecordPayload> {
   /**
    * Upserts the given prepared records into the Hoodie table, at the supplied instantTime.
    *
-   * <p>This implementation requires that the input records are already tagged, and de-duped if needed.
+   * <p>This implementation requires that the input records are already tagged 被标记, and de-duped if needed.
    *
    * <p>Specifies the write handle explicitly in order to have fine grained control with
    * the underneath file.
@@ -127,6 +132,9 @@ public interface ExplicitWriteHandleTable<T extends HoodieRecordPayload> {
       List<HoodieRecord<T>> preppedRecords);
 
   /**
+   *   插入动态分区
+   *  对于输入记录中包含的分区路径，替换所有现有记录并将指定的新记录插入到 Hoodie 表中。
+   *
    * Replaces all the existing records and inserts the specified new records into Hoodie table at the supplied instantTime,
    * for the partition paths contained in input records.
    *
@@ -143,6 +151,9 @@ public interface ExplicitWriteHandleTable<T extends HoodieRecordPayload> {
       List<HoodieRecord<T>> records);
 
   /**
+   *  插入静态分区
+   *  对于输入记录中包含的分区路径，删除 Hoodie 表的所有现有记录，并在提供的 InstantTime 将指定的新记录插入到 Hoodie 表中。
+   *
    * Deletes all the existing records of the Hoodie table and inserts the specified new records into Hoodie table at the supplied instantTime,
    * for the partition paths contained in input records.
    *

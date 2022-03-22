@@ -46,6 +46,7 @@ public final class FlinkHoodieIndexFactory {
     // TODO more indexes to be added
     switch (config.getIndexType()) {
       case INMEMORY:
+        //   索引类型， flink inmemory
         return new FlinkInMemoryStateIndex<>(context, config);
       case BLOOM:
         return new HoodieBloomIndex<>(config, ListBasedHoodieBloomIndexHelper.getInstance());

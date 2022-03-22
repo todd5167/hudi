@@ -193,13 +193,14 @@ public class CleanActionExecutor<T extends HoodieRecordPayload, I, K, O> extends
       } else {
         inflightInstant = cleanInstant;
       }
-
+      //  clean
       List<HoodieCleanStat> cleanStats = clean(context, cleanerPlan);
       if (cleanStats.isEmpty()) {
         return HoodieCleanMetadata.newBuilder().build();
       }
 
       table.getMetaClient().reloadActiveTimeline();
+      //
       HoodieCleanMetadata metadata = CleanerUtils.convertCleanMetadata(
           inflightInstant.getTimestamp(),
           Option.of(timer.endTimer()),
@@ -209,6 +210,7 @@ public class CleanActionExecutor<T extends HoodieRecordPayload, I, K, O> extends
         this.txnManager.beginTransaction(Option.empty(), Option.empty());
       }
       writeTableMetadata(metadata);
+
       table.getActiveTimeline().transitionCleanInflightToComplete(inflightInstant,
           TimelineMetadataUtils.serializeCleanMetadata(metadata));
       LOG.info("Marked clean started on " + inflightInstant.getTimestamp() + " as complete");
@@ -228,6 +230,7 @@ public class CleanActionExecutor<T extends HoodieRecordPayload, I, K, O> extends
     // If there are inflight(failed) or previously requested clean operation, first perform them
     List<HoodieInstant> pendingCleanInstants = table.getCleanTimeline()
         .filterInflightsAndRequested().getInstants().collect(Collectors.toList());
+
     if (pendingCleanInstants.size() > 0) {
       pendingCleanInstants.forEach(hoodieInstant -> {
         LOG.info("Finishing previously unfinished cleaner instant=" + hoodieInstant);
@@ -239,6 +242,7 @@ public class CleanActionExecutor<T extends HoodieRecordPayload, I, K, O> extends
       });
       table.getMetaClient().reloadActiveTimeline();
     }
+
     // return the last clean metadata for now
     // TODO (NA) : Clean only the earliest pending clean just like how we do for other table services
     // This requires the CleanActionExecutor to be refactored as BaseCommitActionExecutor

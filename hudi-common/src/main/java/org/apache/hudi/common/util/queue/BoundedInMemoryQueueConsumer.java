@@ -34,12 +34,13 @@ public abstract class BoundedInMemoryQueueConsumer<I, O> {
     Iterator<I> iterator = queue.iterator();
 
     while (iterator.hasNext()) {
+      //  消费记录并下发给 HoodieWriteHandle
       consumeOneRecord(iterator.next());
     }
-
+    //  队列数据消费完毕，后置处理
     // Notifies done
     finish();
-
+    // 返回状态统计信息
     return getResult();
   }
 

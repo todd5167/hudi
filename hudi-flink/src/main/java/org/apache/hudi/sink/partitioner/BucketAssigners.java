@@ -38,7 +38,7 @@ public abstract class BucketAssigners {
    * @param taskID           The task ID
    * @param maxParallelism   The max parallelism
    * @param numTasks         The number of tasks
-   * @param ignoreSmallFiles Whether to ignore the small files
+   * @param ignoreSmallFiles Whether to ignore the small files   ----> upsert 为false
    * @param tableType        The table type
    * @param context          The engine context
    * @param config           The configuration
@@ -52,8 +52,10 @@ public abstract class BucketAssigners {
       HoodieTableType tableType,
       HoodieFlinkEngineContext context,
       HoodieWriteConfig config) {
+    //  mor
     boolean delta = tableType.equals(HoodieTableType.MERGE_ON_READ);
     WriteProfile writeProfile = WriteProfiles.singleton(ignoreSmallFiles, delta, config, context);
+
     return new BucketAssigner(taskID, maxParallelism, numTasks, writeProfile, config);
   }
 }

@@ -88,6 +88,7 @@ public class HoodieTableSink implements DynamicTableSink, SupportsPartitioning, 
       // bootstrap
       final DataStream<HoodieRecord> hoodieRecordDataStream =
           Pipelines.bootstrap(conf, rowType, parallelism, dataStream, context.isBounded(), overwrite);
+
       // write pipeline
       pipeline = Pipelines.hoodieStreamWrite(conf, parallelism, hoodieRecordDataStream);
       // compaction

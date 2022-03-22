@@ -28,6 +28,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
+ *
+ *   consumer
+ *  从内存队列消费数据写入显式创建的文件句柄   mor FlinkAppendHandle，   HoodieWriteHandle 的代理类
+ *
  * Consumes stream of hoodie records from in-memory queue and writes to one explicit create handle.
  */
 public class ExplicitWriteHandler<T extends HoodieRecordPayload>
@@ -44,11 +48,13 @@ public class ExplicitWriteHandler<T extends HoodieRecordPayload>
   @Override
   public void consumeOneRecord(HoodieLazyInsertIterable.HoodieInsertValueGenResult<HoodieRecord> payload) {
     final HoodieRecord insertPayload = payload.record;
+    // 写入
     handle.write(insertPayload, payload.insertValue, payload.exception);
   }
 
   @Override
   public void finish() {
+    // 关闭 Handle
     closeOpenHandle();
     assert statuses.size() > 0;
   }
@@ -59,7 +65,8 @@ public class ExplicitWriteHandler<T extends HoodieRecordPayload>
   }
 
   private void closeOpenHandle() {
-    statuses.addAll(handle.close());
+    List status = handle.close();
+    statuses.addAll(status);
   }
 }
 

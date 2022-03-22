@@ -51,6 +51,7 @@ public class HoodieAvroKeyGeneratorFactory {
   public static KeyGenerator createKeyGenerator(TypedProperties props) throws IOException {
     // keyGenerator class name has higher priority
     KeyGenerator keyGenerator = KeyGenUtils.createKeyGeneratorByClassName(props);
+    //  用户为指定 key生成类， 默认使用 SimpleAvroKeyGenerator
     return Objects.isNull(keyGenerator) ? createAvroKeyGeneratorByType(props) : keyGenerator;
   }
 

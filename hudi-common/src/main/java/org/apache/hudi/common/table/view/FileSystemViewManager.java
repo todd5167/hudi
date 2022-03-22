@@ -162,6 +162,7 @@ public class FileSystemViewManager {
     HoodieTimeline timeline = metaClient.getActiveTimeline().filterCompletedAndCompactionInstants();
     if (metadataConfig.enabled()) {
       ValidationUtils.checkArgument(metadataSupplier != null, "Metadata supplier is null. Cannot instantiate metadata file system view");
+
       return new HoodieMetadataFileSystemView(metaClient, metaClient.getActiveTimeline().getCommitsTimeline().filterCompletedInstants(),
           metadataSupplier.get());
     }
@@ -221,6 +222,9 @@ public class FileSystemViewManager {
   }
 
   /**
+   *
+   *  构建文件系统 视图
+   *
    * Main Factory method for building file-system views.
    *
    */
@@ -242,6 +246,7 @@ public class FileSystemViewManager {
             (metaClient, viewConf) -> createSpillableMapBasedFileSystemView(conf, viewConf, metaClient, commonConfig));
       case MEMORY:
         LOG.info("Creating in-memory based Table View");
+        //  基于内存
         return new FileSystemViewManager(context, config,
             (metaClient, viewConfig) -> createInMemoryFileSystemView(metadataConfig, viewConfig, metaClient, metadataSupplier));
       case REMOTE_ONLY:

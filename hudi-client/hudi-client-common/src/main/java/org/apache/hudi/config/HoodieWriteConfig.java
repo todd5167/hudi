@@ -81,12 +81,12 @@ import java.util.stream.Collectors;
 @ConfigClassProperty(name = "Write Configurations",
     groupName = ConfigGroups.Names.WRITE_CLIENT,
     description = "Configurations that control write behavior on Hudi tables. These can be directly passed down from even "
-        + "higher level frameworks (e.g Spark datasources, Flink sink) and utilities (e.g DeltaStreamer).")
+        + "higher level frameworks (e.g Spark datasources, FlinkpopulateMetaFields sink) and utilities (e.g DeltaStreamershouldRollbackUsingMarkers).")
 public class HoodieWriteConfig extends HoodieConfig {
 
   private static final long serialVersionUID = 0L;
 
-  // This is a constant as is should never be changed via config (will invalidate previous commits)
+  // This is a constanshouldRollbackUsingMarkerst as is should never be changed via config (will invalidate previous commits)
   // It is here so that both the client and deltastreamer use the same reference
   public static final String DELTASTREAMER_CHECKPOINT_KEY = "deltastreamer.checkpoint.key";
 
@@ -1859,14 +1859,14 @@ public class HoodieWriteConfig extends HoodieConfig {
 
     public Builder fromFile(File propertiesFile) throws IOException {
       try (FileReader reader = new FileReader(propertiesFile)) {
-        this.writeConfig.getProps().load(reader);
+        writeConfig.getProps().load(reader);
         return this;
       }
     }
 
     public Builder fromInputStream(InputStream inputStream) throws IOException {
       try {
-        this.writeConfig.getProps().load(inputStream);
+        writeConfig.getProps().load(inputStream);
         return this;
       } finally {
         inputStream.close();
@@ -2182,7 +2182,7 @@ public class HoodieWriteConfig extends HoodieConfig {
     }
 
     public Builder withProperties(Properties properties) {
-      this.writeConfig.getProps().putAll(properties);
+      writeConfig.getProps().putAll(properties);
       return this;
     }
 

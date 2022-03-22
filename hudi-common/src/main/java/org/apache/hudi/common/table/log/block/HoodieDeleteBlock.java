@@ -36,6 +36,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
+ *   删除块包含到目前为止从扫描块中删除的键列表。
  * Delete block contains a list of keys to be deleted from scanning the blocks so far.
  */
 public class HoodieDeleteBlock extends HoodieLogBlock {

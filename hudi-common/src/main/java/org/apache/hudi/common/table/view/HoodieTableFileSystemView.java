@@ -43,6 +43,8 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
+ *
+ *  基于 memory 的 table fs view
  * TableFileSystemView Implementations based on in-memory storage.
  * 
  * @see TableFileSystemView
@@ -319,6 +321,7 @@ public class HoodieTableFileSystemView extends IncrementalTimelineSyncFileSystem
   protected void storePartitionView(String partitionPath, List<HoodieFileGroup> fileGroups) {
     LOG.debug("Adding file-groups for partition :" + partitionPath + ", #FileGroups=" + fileGroups.size());
     List<HoodieFileGroup> newList = new ArrayList<>(fileGroups);
+
     partitionToFileGroupsMap.put(partitionPath, newList);
   }
 

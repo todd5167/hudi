@@ -110,6 +110,7 @@ public abstract class BaseRollbackActionExecutor<T extends HoodieRecordPayload, 
       final HoodieTimer timer = new HoodieTimer();
       timer.startTimer();
       if (rollbackInstant.isRequested()) {
+        //  request ---> Inflight
         inflightInstant = table.getActiveTimeline().transitionRollbackRequestedToInflight(rollbackInstant,
             TimelineMetadataUtils.serializeRollbackPlan(rollbackPlan));
       } else {
@@ -117,12 +118,15 @@ public abstract class BaseRollbackActionExecutor<T extends HoodieRecordPayload, 
       }
 
       HoodieTimer rollbackTimer = new HoodieTimer().startTimer();
+      //  执行rollback
       List<HoodieRollbackStat> stats = doRollbackAndGetStats(rollbackPlan);
+
       HoodieRollbackMetadata rollbackMetadata = TimelineMetadataUtils.convertRollbackMetadata(
           instantTime,
           Option.of(rollbackTimer.endTimer()),
           Collections.singletonList(instantToRollback),
           stats);
+
       if (!skipTimelinePublish) {
         finishRollback(inflightInstant, rollbackMetadata);
       }
@@ -139,9 +143,11 @@ public abstract class BaseRollbackActionExecutor<T extends HoodieRecordPayload, 
 
   @Override
   public HoodieRollbackMetadata execute() {
+
     table.getMetaClient().reloadActiveTimeline();
     List<HoodieInstant> rollBackInstants = table.getRollbackTimeline()
         .filterInflightsAndRequested().getInstants().collect(Collectors.toList());
+
     if (rollBackInstants.isEmpty()) {
       throw new HoodieRollbackException("No Requested Rollback Instants found to execute rollback ");
     }
@@ -154,7 +160,9 @@ public abstract class BaseRollbackActionExecutor<T extends HoodieRecordPayload, 
     }
     if (rollbackInstant != null) {
       try {
+        //
         HoodieRollbackPlan rollbackPlan = RollbackUtils.getRollbackPlan(table.getMetaClient(), rollbackInstant);
+        //
         return runRollback(table, rollBackInstants.get(0), rollbackPlan);
       } catch (IOException e) {
         throw new HoodieIOException("Failed to fetch rollback plan to rollback commit " + rollbackInstant.getTimestamp(), e);
@@ -232,6 +240,7 @@ public abstract class BaseRollbackActionExecutor<T extends HoodieRecordPayload, 
     }
 
     try {
+      //  执行rollback
       List<HoodieRollbackStat> stats = executeRollback(hoodieRollbackPlan);
       LOG.info("Rolled back inflight instant " + instantTimeToRollback);
       if (!isPendingCompaction) {
@@ -285,12 +294,15 @@ public abstract class BaseRollbackActionExecutor<T extends HoodieRecordPayload, 
     if (deleteInstant) {
       LOG.info("Deleting instant=" + instantToBeDeleted);
       activeTimeline.deletePending(instantToBeDeleted);
+
       if (instantToBeDeleted.isInflight() && !table.getMetaClient().getTimelineLayoutVersion().isNullVersion()) {
         // Delete corresponding requested instant
         instantToBeDeleted = new HoodieInstant(HoodieInstant.State.REQUESTED, instantToBeDeleted.getAction(),
             instantToBeDeleted.getTimestamp());
+
         activeTimeline.deletePending(instantToBeDeleted);
       }
+
       LOG.info("Deleted pending commit " + instantToBeDeleted);
     } else {
       LOG.warn("Rollback finished without deleting inflight instant file. Instant=" + instantToBeDeleted);

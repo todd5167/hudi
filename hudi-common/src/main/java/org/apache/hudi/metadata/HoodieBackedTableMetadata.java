@@ -67,6 +67,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
+ *   由内部 DFS 支持的 Hudi 元数据表提供的表元数据。
  * Table metadata provided by an internal DFS backed Hudi metadata table.
  */
 public class HoodieBackedTableMetadata extends BaseTableMetadata {

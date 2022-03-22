@@ -90,14 +90,23 @@ public class HoodieCreateHandle<T extends HoodieRecordPayload, I, K, O> extends 
     writeStatus.setFileId(fileId);
     writeStatus.setPartitionPath(partitionPath);
     writeStatus.setStat(new HoodieWriteStat());
-
+    // 构建 parquet path 例如： xxx/202203/710c791b-2358-4903-bef8-b885f48a40b8_1-2-0_20220318111533929.parquet
     this.path = makeNewPath(partitionPath);
-
     try {
+      /**
+       *向分区里面写入元数据信息，记录当前分区的创建时间和分区深度
+       * #partition metadata
+       * #Thu Mar 17 16:55:10 CST 2022
+       * commitTime=20220317165442543
+       * partitionDepth=1
+       */
       HoodiePartitionMetadata partitionMetadata = new HoodiePartitionMetadata(fs, instantTime,
           new Path(config.getBasePath()), FSUtils.getPartitionPath(config.getBasePath(), partitionPath));
       partitionMetadata.trySave(getPartitionId());
+
+      // 创建 mark file， 在哪个 instant 针对哪些分区 file group 做了什么操作
       createMarkerFile(partitionPath, FSUtils.makeDataFileName(this.instantTime, this.writeToken, this.fileId, hoodieTable.getBaseFileExtension()));
+      //  创建文件写入器   FileWriter -->   HoodieFileWriter   --->  HoodieParquetWriter
       this.fileWriter = HoodieFileWriterFactory.getFileWriter(instantTime, path, hoodieTable, config,
         writeSchemaWithMetaFields, this.taskContextSupplier);
     } catch (IOException e) {
@@ -123,24 +132,28 @@ public class HoodieCreateHandle<T extends HoodieRecordPayload, I, K, O> extends 
   }
 
   /**
+   *  将给定记录实际写入支持文件。
    * Perform the actual writing of the given record into the backing file.
    */
   @Override
   public void write(HoodieRecord record, Option<IndexedRecord> avroRecord) {
     Option recordMetadata = record.getData().getMetadata();
+
     if (HoodieOperation.isDelete(record.getOperation())) {
       avroRecord = Option.empty();
     }
+
     try {
       if (avroRecord.isPresent()) {
         if (avroRecord.get().equals(IGNORE_RECORD)) {
           return;
         }
-        // Convert GenericRecord to GenericRecord with hoodie commit metadata in schema
+        //  为record 填充hoodie 的schema信息
         IndexedRecord recordWithMetadataInSchema = rewriteRecord((GenericRecord) avroRecord.get());
         if (preserveHoodieMetadata) {
           fileWriter.writeAvro(record.getRecordKey(), recordWithMetadataInSchema);
         } else {
+          // 为填充hoodie 的schema，填充数据
           fileWriter.writeAvroWithMetadata(recordWithMetadataInSchema, record);
         }
         // update the new location of record, so we know where to find it next
@@ -152,6 +165,7 @@ public class HoodieCreateHandle<T extends HoodieRecordPayload, I, K, O> extends 
       } else {
         recordsDeleted++;
       }
+
       writeStatus.markSuccess(record, recordMetadata);
       // deflate record payload after recording success. This will help users access payload as a
       // part of marking
@@ -166,6 +180,9 @@ public class HoodieCreateHandle<T extends HoodieRecordPayload, I, K, O> extends 
   }
 
   /**
+   *  org.apache.hudi.table.HoodieFlinkCopyOnWriteTable#handleInsert(java.lang.String, java.lang.String, java.lang.String, java.util.Map) 调度
+   *   数据压缩时，如果不存在老的parquet文件，则将 recordMap 中的数据插入
+   *
    * Writes all records passed.
    */
   public void write() {
@@ -205,7 +222,7 @@ public class HoodieCreateHandle<T extends HoodieRecordPayload, I, K, O> extends 
     try {
 
       fileWriter.close();
-
+      // 填充 writeStatus 信息
       setupWriteStatus();
 
       LOG.info(String.format("CreateHandle for partitionPath %s fileID %s, took %d ms.",

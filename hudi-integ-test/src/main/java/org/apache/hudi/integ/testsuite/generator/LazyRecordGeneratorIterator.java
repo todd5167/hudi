@@ -23,6 +23,7 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.hudi.client.utils.LazyIterableIterator;
 
 /**
+ *  生产
  * A lazy record generator to generate {@link GenericRecord}s lazily and not hold a list of records in memory.
  */
 public class LazyRecordGeneratorIterator extends

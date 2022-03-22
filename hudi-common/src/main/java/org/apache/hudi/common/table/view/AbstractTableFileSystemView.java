@@ -68,11 +68,20 @@ import static org.apache.hudi.common.table.timeline.HoodieTimeline.GREATER_THAN_
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.METADATA_BOOTSTRAP_INSTANT_TS;
 
 /**
- * Common thread-safe implementation for multiple TableFileSystemView Implementations. Provides uniform handling of (a)
- * Loading file-system views from underlying file-system (b) Pending compaction operations and changing file-system
- * views based on that (c) Thread-safety in loading and managing file system views for this table. (d) resetting
- * file-system views The actual mechanism of fetching file slices from different view storages is delegated to
- * sub-classes.
+ *    多个 TableFileSystemView 实现的通用线程安全实现。提供统一处理:
+ *    -
+ * Common thread-safe implementation for multiple TableFileSystemView Implementations.
+ *  Provides uniform handling of
+ *  (a) 从底层文件系统加载文件系统视图
+ *  (b) pending 的压缩操作并基于此更改文件系统视图
+ *  (c) 线程安全
+ *  (d) 重置文件系统视图. 从不同的视图存储中获取文件切片的实际机制委托给子类。
+ *
+ *--------------------------------------------------------------
+ *  (a) Loading file-system views from underlying file-system
+ *  (b) Pending compaction operations and changing file-system views based on that
+ *  (c) Thread-safety in loading and managing file system views for this table.
+ *  (d) resetting file-system views The actual mechanism of fetching file slices from different view storages is delegated to sub-classes.
  */
 public abstract class AbstractTableFileSystemView implements SyncableFileSystemView, Serializable {
 
@@ -92,6 +101,7 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
   private final ReadLock readLock = globalLock.readLock();
   private final WriteLock writeLock = globalLock.writeLock();
 
+  //  HFileBootstrap
   private BootstrapIndex bootstrapIndex;
 
   private String getPartitionPathFromFilePath(String fullPath) {
@@ -127,9 +137,13 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
    */
   public List<HoodieFileGroup> addFilesToView(FileStatus[] statuses) {
     HoodieTimer timer = new HoodieTimer().startTimer();
+    // 构建 fileGroup， 一个分区包含多个fileGroups
     List<HoodieFileGroup> fileGroups = buildFileGroups(statuses, visibleCommitsAndCompactionTimeline, true);
     long fgBuildTimeTakenMs = timer.endTimer();
     timer.startTimer();
+
+    //   对 fileGroups 按分区进行分组
+
     // Group by partition for efficient updates for both InMemory and DiskBased stuctures.
     fileGroups.stream().collect(Collectors.groupingBy(HoodieFileGroup::getPartitionPath)).forEach((partition, value) -> {
       if (!isPartitionAvailableInStore(partition)) {
@@ -143,13 +157,17 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
                     s.getFileId()), s.getBootstrapFileStatus())));
           }
         }
+        // 存储到 分区视图
         storePartitionView(partition, value);
       }
     });
+
     long storePartitionsTs = timer.endTimer();
     LOG.info("addFilesToView: NumFiles=" + statuses.length + ", NumFileGroups=" + fileGroups.size()
         + ", FileGroupsCreationTime=" + fgBuildTimeTakenMs
         + ", StoreTimeTaken=" + storePartitionsTs);
+
+
     return fileGroups;
   }
 
@@ -158,34 +176,44 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
    */
   protected List<HoodieFileGroup> buildFileGroups(FileStatus[] statuses, HoodieTimeline timeline,
       boolean addPendingCompactionFileSlice) {
+    // 1. 从fs中将parquet文件和log文件转换为hudi 内部数据格式
+    // 2. 构建file group
     return buildFileGroups(convertFileStatusesToBaseFiles(statuses), convertFileStatusesToLogFiles(statuses), timeline,
         addPendingCompactionFileSlice);
   }
 
   protected List<HoodieFileGroup> buildFileGroups(Stream<HoodieBaseFile> baseFileStream,
       Stream<HoodieLogFile> logFileStream, HoodieTimeline timeline, boolean addPendingCompactionFileSlice) {
+    // baseFiles 分组：  <key: <partionPath,field>,  value: List<HoodieBaseFile> >
     Map<Pair<String, String>, List<HoodieBaseFile>> baseFiles =
         baseFileStream.collect(Collectors.groupingBy((baseFile) -> {
           String partitionPathStr = getPartitionPathFromFilePath(baseFile.getPath());
           return Pair.of(partitionPathStr, baseFile.getFileId());
         }));
 
+    //  logFiles：       <key: <partitionPathStr,field > value: List<HoodieBaseFile> >
     Map<Pair<String, String>, List<HoodieLogFile>> logFiles = logFileStream.collect(Collectors.groupingBy((logFile) -> {
       String partitionPathStr =
           FSUtils.getRelativePartitionPath(new Path(metaClient.getBasePath()), logFile.getPath().getParent());
       return Pair.of(partitionPathStr, logFile.getFileId());
     }));
 
+
     Set<Pair<String, String>> fileIdSet = new HashSet<>(baseFiles.keySet());
     fileIdSet.addAll(logFiles.keySet());
 
     List<HoodieFileGroup> fileGroups = new ArrayList<>();
+
     fileIdSet.forEach(pair -> {
       String fileId = pair.getValue();
+      //  根据 <partition, fieldId> 构建 HoodieFileGroup,   包含一组parquet 和 logs文件
       HoodieFileGroup group = new HoodieFileGroup(pair.getKey(), fileId, timeline);
+
       if (baseFiles.containsKey(pair)) {
+        // 向fileGroup 中添加 fieldID
         baseFiles.get(pair).forEach(group::addBaseFile);
       }
+
       if (logFiles.containsKey(pair)) {
         logFiles.get(pair).forEach(group::addLogFile);
       }
@@ -206,6 +234,7 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
   }
 
   /**
+   *   通过查看所有已提交的instants  来获得每个文件组的commit instants. 。
    * Get replaced instant for each file group by looking at all commit instants.
    */
   private void resetFileGroupsReplaced(HoodieTimeline timeline) {
@@ -215,12 +244,14 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
     HoodieTimeline replacedTimeline = timeline.getCompletedReplaceTimeline();
     Stream<Map.Entry<HoodieFileGroupId, HoodieInstant>> resultStream = replacedTimeline.getInstants().flatMap(instant -> {
       try {
-        HoodieReplaceCommitMetadata replaceMetadata = HoodieReplaceCommitMetadata.fromBytes(metaClient.getActiveTimeline().getInstantDetails(instant).get(),
+        HoodieReplaceCommitMetadata replaceMetadata = HoodieReplaceCommitMetadata.fromBytes(
+            metaClient.getActiveTimeline().getInstantDetails(instant).get(),
             HoodieReplaceCommitMetadata.class);
 
         // get replace instant mapping for each partition, fileId
         return replaceMetadata.getPartitionToReplaceFileIds().entrySet().stream().flatMap(entry -> entry.getValue().stream().map(e ->
                 new AbstractMap.SimpleEntry<>(new HoodieFileGroupId(entry.getKey(), e), instant)));
+
       } catch (HoodieIOException ex) {
 
         if (ex.getIOException() instanceof FileNotFoundException) {
@@ -305,6 +336,8 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
           long endLsTs = System.currentTimeMillis();
           LOG.debug("#files found in partition (" + partitionPathStr + ") =" + statuses.length + ", Time taken ="
               + (endLsTs - beginLsTs));
+
+          //  将 FS中的文件写入 View
           List<HoodieFileGroup> groups = addFilesToView(statuses);
 
           if (groups.isEmpty()) {
@@ -344,6 +377,7 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
   }
 
   /**
+   *    读取parquet文件
    * Helper to convert file-status to base-files.
    *
    * @param statuses List of File-Status
@@ -480,13 +514,15 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
       readLock.unlock();
     }
   }
-
+  //  读取最新的base 文件
   @Override
   public final Stream<HoodieBaseFile> getLatestBaseFilesBeforeOrOn(String partitionStr, String maxCommitTime) {
     try {
       readLock.lock();
       String partitionPath = formatPartitionKey(partitionStr);
+      // 构建文件组的流程
       ensurePartitionLoadedCorrectly(partitionPath);
+
       return fetchAllStoredFileGroups(partitionPath)
           .filter(fileGroup -> !isFileGroupReplacedBeforeOrOn(fileGroup.getFileGroupId(), maxCommitTime))
           .map(fileGroup -> Option.fromJavaOptional(fileGroup.getAllBaseFiles()
@@ -654,10 +690,12 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
     try {
       readLock.lock();
       String partition = formatPartitionKey(partitionStr);
+
       ensurePartitionLoadedCorrectly(partition);
       return fetchAllStoredFileGroups(partition)
-          .filter(fg -> !isFileGroupReplacedBeforeOrOn(fg.getFileGroupId(), maxInstantTime))
+          .filter(fg -> !isFileGroupReplacedBeforeOrOn(fg.getFileGroupId(), maxInstantTime))   //  maxInstantTime 之前的  file group
           .map(fileGroup -> {
+            //  最新的一份 fileGroup
             Option<FileSlice> fileSlice = fileGroup.getLatestFileSliceBeforeOrOn(maxInstantTime);
             // if the file-group is under construction, pick the latest before compaction instant time.
             if (fileSlice.isPresent()) {

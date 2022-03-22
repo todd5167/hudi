@@ -41,6 +41,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
+ *  向  log file 中追加 blocks
  * HoodieLogFormatWriter can be used to append blocks to a log file Use HoodieLogFormat.WriterBuilder to construct.
  */
 public class HoodieLogFormatWriter implements HoodieLogFormat.Writer {
@@ -100,6 +101,7 @@ public class HoodieLogFormatWriter implements HoodieLogFormat.Writer {
     if (this.output == null) {
       Path path = logFile.getPath();
       if (fs.exists(path)) {
+        // 文件是否支持Append, 支持append的文件系统比较少， hdfs支持append
         boolean isAppendSupported = StorageSchemes.isAppendSupported(fs.getScheme());
         if (isAppendSupported) {
           LOG.info(logFile + " exists. Appending to existing file");
@@ -123,8 +125,11 @@ public class HoodieLogFormatWriter implements HoodieLogFormat.Writer {
             }
           }
         }
+        //  不支持 append 的文件系统会创建一个新的 log file
         if (!isAppendSupported) {
+          //  滚动生成新的 log file 名称
           rollOver();
+          //  创建新的 logfile
           createNewFile();
           LOG.info("Append not supported.. Rolling over to " + logFile);
         }
@@ -144,10 +149,10 @@ public class HoodieLogFormatWriter implements HoodieLogFormat.Writer {
 
   @Override
   public AppendResult appendBlocks(List<HoodieLogBlock> blocks) throws IOException, InterruptedException {
-    // Find current version
+    // Find current version      log format 版本
     HoodieLogFormat.LogFormatVersion currentLogFormatVersion =
         new HoodieLogFormatVersion(HoodieLogFormat.CURRENT_VERSION);
-
+    // 针对 logfile 构建 outputStream
     FSDataOutputStream outputStream = getOutputStream();
     long startPos = outputStream.getPos();
     long sizeWritten = 0;
@@ -158,14 +163,16 @@ public class HoodieLogFormatWriter implements HoodieLogFormat.Writer {
       // 1. Write the magic header for the start of the block
       outputStream.write(HoodieLogFormat.MAGIC);
 
-      // bytes for header
+      // bytes for header   头信息  Instance, schema
       byte[] headerBytes = HoodieLogBlock.getLogMetadataBytes(block.getLogBlockHeader());
-      // content bytes
+
+      // content bytes  将record 以avro 格式写入
       byte[] content = block.getContentBytes();
-      // bytes for footer
+
+      // bytes for footer   空map
       byte[] footerBytes = HoodieLogBlock.getLogMetadataBytes(block.getLogBlockFooter());
 
-      // 2. Write the total size of the block (excluding Magic)
+      // 2. Write the total size of the block (excluding Magic)   log block的总字节大小
       outputStream.writeLong(getLogBlockLength(content.length, headerBytes.length, footerBytes.length));
 
       // 3. Write the version of this log block
@@ -183,6 +190,7 @@ public class HoodieLogFormatWriter implements HoodieLogFormat.Writer {
       outputStream.write(footerBytes);
       // 9. Write the total size of the log block (including magic) which is everything written
       // until now (for reverse pointer)
+      //  通过与标头中的块大小进行比较来确定块是否损坏
       // Update: this information is now used in determining if a block is corrupt by comparing to the
       //   block size in header. This change assumes that the block size will be the last data written
       //   to a block. Read will break if any data is written past this point for a block.
@@ -191,12 +199,14 @@ public class HoodieLogFormatWriter implements HoodieLogFormat.Writer {
       // Fetch the size again, so it accounts also (9).
       sizeWritten +=  outputStream.size() - startSize;
     }
-    // Flush all blocks to disk
+    // Flush all blocks to disk   数据刷出
     flush();
-
+    //   数据写入的 <startPos 起始偏移量, sizeWritten>
     AppendResult result = new AppendResult(logFile, startPos, sizeWritten);
+
     // roll over if size is past the threshold
     rolloverIfNeeded();
+
     return result;
   }
 

@@ -79,12 +79,17 @@ public class CopyOnWriteInsertHandler<T extends HoodieRecordPayload>
       if (areRecordsSorted) {
         closeOpenHandles();
       }
+
+      // 为每个分区构建 writeHandle， flink 包装在 ExplicitWriteHandleFactory
       // Lazily initialize the handle, for the first time
       handle = writeHandleFactory.create(config, instantTime, hoodieTable,
           insertPayload.getPartitionPath(), idPrefix, taskContextSupplier);
       handles.put(partitionPath, handle);
     }
 
+    /**
+     *   FlinkCreateHandle 总是为true, 因为在数据分配bucket时已经进行文件大小判断
+     */
     if (!handle.canWrite(payload.record)) {
       // Handle is full. Close the handle and add the WriteStatus
       statuses.addAll(handle.close());
@@ -93,6 +98,8 @@ public class CopyOnWriteInsertHandler<T extends HoodieRecordPayload>
           insertPayload.getPartitionPath(), idPrefix, taskContextSupplier);
       handles.put(partitionPath, handle);
     }
+
+    // 写入parquet
     handle.write(insertPayload, payload.insertValue, payload.exception);
   }
 

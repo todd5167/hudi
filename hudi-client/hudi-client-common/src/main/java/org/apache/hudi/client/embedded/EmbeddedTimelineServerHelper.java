@@ -54,6 +54,7 @@ public class EmbeddedTimelineServerHelper {
       }
       return TIMELINE_SERVER;
     }
+
     if (config.isEmbeddedTimelineServerEnabled()) {
       return Option.of(startTimelineService(context, config));
     } else {
@@ -61,6 +62,13 @@ public class EmbeddedTimelineServerHelper {
     }
   }
 
+  /**
+   *  启动 TimelineService
+   * @param context
+   * @param config
+   * @return
+   * @throws IOException
+   */
   private static EmbeddedTimelineService startTimelineService(
       HoodieEngineContext context, HoodieWriteConfig config) throws IOException {
     // Run Embedded Timeline Server
@@ -68,7 +76,9 @@ public class EmbeddedTimelineServerHelper {
     Option<String> hostAddr = context.getProperty(EngineProperty.EMBEDDED_SERVER_HOST);
     EmbeddedTimelineService timelineService = new EmbeddedTimelineService(
         context, hostAddr.orElse(null), config);
+    //
     timelineService.startServer();
+
     updateWriteConfigWithTimelineServer(timelineService, config);
     return timelineService;
   }

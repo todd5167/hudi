@@ -38,8 +38,10 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Executor which orchestrates concurrent producers and consumers communicating through a bounded in-memory queue. This
- * class takes as input the size limit, queue producer(s), consumer and transformer and exposes API to orchestrate
+ *
+ *  通过有界的内存队列协调生产者和生产者的执行器。
+ * Executor which orchestrates concurrent producers and consumers communicating through a bounded in-memory queue.
+ ** This class takes as input the size limit, queue producer(s), consumer and transformer and exposes API to orchestrate
  * concurrent execution of these actors communicating through a central bounded queue
  */
 public class BoundedInMemoryExecutor<I, O, E> {
@@ -65,8 +67,10 @@ public class BoundedInMemoryExecutor<I, O, E> {
       final SizeEstimator<O> sizeEstimator) {
     this.producers = producers;
     this.consumer = consumer;
+    //  线程数量为 producers + consumer
     // Ensure single thread for each producer thread and one for consumer
     this.executorService = Executors.newFixedThreadPool(producers.size() + 1);
+    //  基于内存的有界队列
     this.queue = new BoundedInMemoryQueue<>(bufferLimitInBytes, transformFunction, sizeEstimator);
   }
 
@@ -78,17 +82,21 @@ public class BoundedInMemoryExecutor<I, O, E> {
   }
 
   /**
+   *   启动全部生产者
    * Start all Producers.
    */
   public ExecutorCompletionService<Boolean> startProducers() {
+    //  Latch 控制何时以及哪个生产者线程将关闭队列
     // Latch to control when and which producer thread will close the queue
     final CountDownLatch latch = new CountDownLatch(producers.size());
     final ExecutorCompletionService<Boolean> completionService =
         new ExecutorCompletionService<Boolean>(executorService);
+
     producers.stream().map(producer -> {
       return completionService.submit(() -> {
         try {
           preExecute();
+          // 生产者下发数据到queue
           producer.produce(queue);
         } catch (Throwable e) {
           LOG.error("error producing records", e);
@@ -98,6 +106,7 @@ public class BoundedInMemoryExecutor<I, O, E> {
           synchronized (latch) {
             latch.countDown();
             if (latch.getCount() == 0) {
+              // 将生产标记为已完成，以便消费者能够退出
               // Mark production as done so that consumer will be able to exit
               queue.close();
             }
@@ -110,6 +119,7 @@ public class BoundedInMemoryExecutor<I, O, E> {
   }
 
   /**
+   *  启动唯一消费者
    * Start only consumer.
    */
   private Future<E> startConsumer() {
@@ -131,13 +141,17 @@ public class BoundedInMemoryExecutor<I, O, E> {
   }
 
   /**
+   *  指定入口
    * Main API to run both production and consumption.
    */
   public E execute() {
     try {
-      ExecutorCompletionService<Boolean> producerService = startProducers();
+      // 1. 启动生产者，生产数据
+      startProducers();
+      // 2. 消费数据
       Future<E> future = startConsumer();
       // Wait for consumer to be done
+      // 阻塞拿结果
       return future.get();
     } catch (InterruptedException ie) {
       shutdownNow();

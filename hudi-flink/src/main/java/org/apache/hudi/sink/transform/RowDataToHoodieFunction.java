@@ -84,10 +84,14 @@ public class RowDataToHoodieFunction<I extends RowData, O extends HoodieRecord>
   public void open(Configuration parameters) throws Exception {
     super.open(parameters);
     this.avroSchema = StreamerUtil.getSourceSchema(this.config);
+
+    // 将flink rowdata 数据格式转换为 avro 数据的转换器
     this.converter = RowDataToAvroConverters.createConverter(this.rowType);
+    // 负责从 avro record 抽取key
     this.keyGenerator =
         HoodieAvroKeyGeneratorFactory
             .createKeyGenerator(flinkConf2TypedProperties(FlinkOptions.flatOptions(this.config)));
+
     this.payloadCreation = PayloadCreation.instance(config);
   }
 
@@ -106,11 +110,15 @@ public class RowDataToHoodieFunction<I extends RowData, O extends HoodieRecord>
    */
   @SuppressWarnings("rawtypes")
   private HoodieRecord toHoodieRecord(I record) throws Exception {
+    //  将 flink  格式的record 转为avro GenericRecord
     GenericRecord gr = (GenericRecord) this.converter.convert(this.avroSchema, record);
+    //  根据ddl语句构建的schema，提取主键 & 分区，创建HoodieKey。
     final HoodieKey hoodieKey = keyGenerator.getKey(gr);
-
+    //  将 avro 记录转字节.
     HoodieRecordPayload payload = payloadCreation.createPayload(gr);
+
     HoodieOperation operation = HoodieOperation.fromValue(record.getRowKind().toByteValue());
+    //
     return new HoodieRecord<>(hoodieKey, payload, operation);
   }
 }

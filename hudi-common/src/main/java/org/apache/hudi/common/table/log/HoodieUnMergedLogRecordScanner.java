@@ -29,6 +29,7 @@ import org.apache.hadoop.fs.FileSystem;
 import java.util.List;
 
 /**
+ *    扫描 unmerged
  * A scanner used to scan hoodie unmerged log records.
  */
 public class HoodieUnMergedLogRecordScanner extends AbstractHoodieLogRecordReader {

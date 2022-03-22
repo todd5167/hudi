@@ -30,6 +30,8 @@ import java.io.IOException;
 import java.util.Objects;
 
 /**
+ *  应该是对重复数据的处理
+ *
  * Default payload used for delta streamer.
  *
  * <ol>
@@ -72,7 +74,9 @@ public class OverwriteWithLatestAvroPayload extends BaseAvroPayload
     if (recordBytes.length == 0) {
       return Option.empty();
     }
+    // 反序列化为 IndexedRecord
     IndexedRecord indexedRecord = HoodieAvroUtils.bytesToAvro(recordBytes, schema);
+    //  读取数据时，根据 _hoodie_is_deleted 进行过滤
     if (isDeleteRecord((GenericRecord) indexedRecord)) {
       return Option.empty();
     } else {

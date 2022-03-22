@@ -35,8 +35,12 @@ import java.io.IOException;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * HoodieParquetWriter extends the ParquetWriter to help limit the size of underlying file. Provides a way to check if
- * the current file can take more records with the <code>canWrite()</code>
+ *    HoodieParquetWriter 扩展了 ParquetWriter 以帮助限制底层文件的大小。
+ *
+ * HoodieParquetWriter extends the ParquetWriter to help limit the size of underlying file.
+ *
+ *    提供一种方法来检查当前文件是否可以使用 <code>canWrite()</code> 获取更多记录
+ * Provides a way to check if the current file can take more records with the <code>canWrite()</code>
  */
 public class HoodieParquetWriter<T extends HoodieRecordPayload, R extends IndexedRecord>
     extends ParquetWriter<IndexedRecord> implements HoodieFileWriter<R> {
@@ -53,20 +57,30 @@ public class HoodieParquetWriter<T extends HoodieRecordPayload, R extends Indexe
 
   public HoodieParquetWriter(String instantTime, Path file, HoodieAvroParquetConfig parquetConfig,
       Schema schema, TaskContextSupplier taskContextSupplier, boolean populateMetaFields) throws IOException {
-    super(HoodieWrapperFileSystem.convertToHoodiePath(file, parquetConfig.getHadoopConf()),
-        ParquetFileWriter.Mode.CREATE, parquetConfig.getWriteSupport(), parquetConfig.getCompressionCodecName(),
-        parquetConfig.getBlockSize(), parquetConfig.getPageSize(), parquetConfig.getPageSize(),
-        parquetConfig.dictionaryEnabled(), DEFAULT_IS_VALIDATING_ENABLED,
-        DEFAULT_WRITER_VERSION, FSUtils.registerFileSystem(file, parquetConfig.getHadoopConf()));
+    super(
+        HoodieWrapperFileSystem.convertToHoodiePath(file, parquetConfig.getHadoopConf()),  // file
+        ParquetFileWriter.Mode.CREATE,  //  create or overwrite
+        parquetConfig.getWriteSupport(),
+        parquetConfig.getCompressionCodecName(),
+        parquetConfig.getBlockSize(),
+        parquetConfig.getPageSize(),
+        parquetConfig.getPageSize(),
+        parquetConfig.dictionaryEnabled(),
+        DEFAULT_IS_VALIDATING_ENABLED,
+        DEFAULT_WRITER_VERSION,
+        FSUtils.registerFileSystem(file, parquetConfig.getHadoopConf()));
+    //  hdfs://127.0.0.1:9000/user/hive/warehouse/hudi_sink_mor/202202/f0f6d266-0ef8-437f-b2aa-6a9d352a1296_1-2-0_20220317165442543.parquet
     this.file = HoodieWrapperFileSystem.convertToHoodiePath(file, parquetConfig.getHadoopConf());
     this.fs =
         (HoodieWrapperFileSystem) this.file.getFileSystem(FSUtils.registerFileSystem(file, parquetConfig.getHadoopConf()));
+
     // We cannot accurately measure the snappy compressed output file size. We are choosing a
     // conservative 10%
     // TODO - compute this compression ratio dynamically by looking at the bytes written to the
     // stream and the actual file size reported by HDFS
     this.maxFileSize = parquetConfig.getMaxFileSize()
         + Math.round(parquetConfig.getMaxFileSize() * parquetConfig.getCompressionRatio());
+
     this.writeSupport = parquetConfig.getWriteSupport();
     this.instantTime = instantTime;
     this.taskContextSupplier = taskContextSupplier;

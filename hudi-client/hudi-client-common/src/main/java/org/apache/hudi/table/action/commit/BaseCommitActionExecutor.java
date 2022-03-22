@@ -55,6 +55,13 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+/**
+ *  1. saveWorkloadProfileMetadataToInflight
+ *  2. autoCommit
+ *
+ *
+ *
+ */
 public abstract class BaseCommitActionExecutor<T extends HoodieRecordPayload, I, K, O, R>
     extends BaseActionExecutor<T, I, K, O, R> {
 
@@ -81,15 +88,22 @@ public abstract class BaseCommitActionExecutor<T extends HoodieRecordPayload, I,
   public abstract HoodieWriteMetadata<O> execute(I inputRecords);
 
   /**
+   *   将 workload 配置文件保存在中间文件中（此处重用提交文件）这在对 MOR 表执行回滚时很有用。
    * Save the workload profile in an intermediate file (here re-using commit files) This is useful when performing
-   * rollback for MOR tables. Only updates are recorded in the workload profile metadata since updates to log blocks
-   * are unknown across batches Inserts (which are new parquet files) are rolled back based on commit time. // TODO :
-   * Create a new WorkloadProfile metadata file instead of using HoodieCommitMetadata
+   * rollback for MOR tables.
+   *
+   *   只有更新记录在 workload 配置文件元数据中，因为对日志块的更新是未知的，批次插入（它们是新的 parquet 文件）会根据提交时间回滚。
+   * Only updates are recorded in the workload profile metadata since updates to log blocks
+   * are unknown across batches Inserts (which are new parquet files) are rolled back based on commit time.
+   *
+   * // TODO :  Create a new WorkloadProfile metadata file instead of using HoodieCommitMetadata
+   *
    */
   void saveWorkloadProfileMetadataToInflight(WorkloadProfile profile, String instantTime)
       throws HoodieCommitException {
     try {
       HoodieCommitMetadata metadata = new HoodieCommitMetadata();
+
       profile.getPartitionPaths().forEach(path -> {
         WorkloadStat partitionStat = profile.getWorkloadStat(path);
         HoodieWriteStat insertStat = new HoodieWriteStat();
@@ -112,6 +126,7 @@ public abstract class BaseCommitActionExecutor<T extends HoodieRecordPayload, I,
       HoodieActiveTimeline activeTimeline = table.getActiveTimeline();
       String commitActionType = getCommitActionType();
       HoodieInstant requested = new HoodieInstant(State.REQUESTED, commitActionType, instantTime);
+      //  Requested  --> Inflight
       activeTimeline.transitionRequestedToInflight(requested,
           Option.of(metadata.toJsonString().getBytes(StandardCharsets.UTF_8)),
           config.shouldAllowMultiWriteOnSameInstant());

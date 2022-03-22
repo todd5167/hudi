@@ -51,6 +51,9 @@ import java.util.function.Function;
  * on the timeline.
  * <p>
  * </p>
+ *
+ *    时间线不会在任何突变操作时自动重新加载，客户端必须手动调用 reload() 以便他们可以将多个突变链接到时间线，然后调用 reload() 一次。
+ *
  * The timeline is not automatically reloaded on any mutation operation, clients have to manually call reload() so that
  * they can chain multiple mutations to the timeline and then call reload() once.
  * <p>
@@ -120,6 +123,7 @@ public class HoodieActiveTimeline extends HoodieDefaultTimeline {
     // Filter all the filter in the metapath and include only the extensions passed and
     // convert them into HoodieInstant
     try {
+      //   读取 指定后缀的文件
       this.setInstants(metaClient.scanHoodieInstantsFromFileSystem(includedExtensions, applyLayoutFilters));
     } catch (IOException e) {
       throw new HoodieIOException("Failed to scan metadata", e);
@@ -475,10 +479,12 @@ public class HoodieActiveTimeline extends HoodieDefaultTimeline {
         LOG.info("Checking for file exists ?" + new Path(metaClient.getMetaPath(), fromInstant.getFileName()));
         ValidationUtils.checkArgument(metaClient.getFs().exists(new Path(metaClient.getMetaPath(),
             fromInstant.getFileName())));
+
         // Use Write Once to create Target File
         if (allowRedundantTransitions) {
           createFileInPath(new Path(metaClient.getMetaPath(), toInstant.getFileName()), data);
         } else {
+          //
           createImmutableFileInPath(new Path(metaClient.getMetaPath(), toInstant.getFileName()), data);
         }
         LOG.info("Create new file for toInstant ?" + new Path(metaClient.getMetaPath(), toInstant.getFileName()));
@@ -521,7 +527,7 @@ public class HoodieActiveTimeline extends HoodieDefaultTimeline {
       throw new HoodieIOException("Could not complete revert " + completed, e);
     }
   }
-
+  //  转换   --->  inflight
   public void transitionRequestedToInflight(String commitType, String inFlightInstant) {
     HoodieInstant requested = new HoodieInstant(HoodieInstant.State.REQUESTED, commitType, inFlightInstant);
     transitionRequestedToInflight(requested, Option.empty(), false);

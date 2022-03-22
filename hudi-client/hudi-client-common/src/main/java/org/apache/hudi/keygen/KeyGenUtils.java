@@ -137,6 +137,7 @@ public class KeyGenUtils {
 
   public static String getRecordKey(GenericRecord record, String recordKeyField) {
     String recordKey = HoodieAvroUtils.getNestedFieldValAsString(record, recordKeyField, true);
+
     if (recordKey == null || recordKey.isEmpty()) {
       throw new HoodieKeyException("recordKey value: \"" + recordKey + "\" for field: \"" + recordKeyField + "\" cannot be null or empty.");
     }

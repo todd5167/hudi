@@ -64,6 +64,7 @@ import java.util.stream.Stream;
  * commits, savepoints, compactions, cleanups as a <code>HoodieTimeline</code> Create an instance of the
  * <code>HoodieTableMetaClient</code> with FileSystem and basePath to start getting the meta-data.
  * <p>
+ *      所有的时间线都是懒加载的，一旦计算出来，时间线就会被缓存并且永远不会刷新。
  * All the timelines are computed lazily, once computed the timeline is cached and never refreshed. Use the
  * <code>HoodieTimeline.reload()</code> to refresh timelines.
  *
@@ -110,6 +111,7 @@ public class HoodieTableMetaClient implements Serializable {
     this.metaPath = new Path(basePath, METAFOLDER_NAME).toString();
     Path metaPathDir = new Path(this.metaPath);
     this.fs = getFs();
+
     TableNotFoundException.checkTableValidity(fs, basePathDir, metaPathDir);
     this.tableConfig = new HoodieTableConfig(fs, metaPath, payloadClassName);
     this.tableType = tableConfig.getTableType();
@@ -278,6 +280,8 @@ public class HoodieTableMetaClient implements Serializable {
   }
 
   /**
+   *
+   *   ================== ================== ================== ================== ================== ================== =================
    * Get the active instants as a timeline.
    *
    * @return Active instants timeline
@@ -304,6 +308,8 @@ public class HoodieTableMetaClient implements Serializable {
   }
 
   /**
+   *
+   *   读取归档的Timeline
    * Get the archived commits as a timeline. This is costly operation, as all data from the archived files are read.
    * This should not be used, unless for historical debugging purposes.
    *
@@ -425,6 +431,8 @@ public class HoodieTableMetaClient implements Serializable {
   }
 
   /**
+   *
+   *    获取 CommitTimeline
    * Get the commit timeline visible for this table.
    */
   public HoodieTimeline getCommitsTimeline() {

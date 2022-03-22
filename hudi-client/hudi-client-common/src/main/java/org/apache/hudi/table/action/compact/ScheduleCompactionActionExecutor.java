@@ -67,6 +67,7 @@ public class ScheduleCompactionActionExecutor<T extends HoodieRecordPayload, I, 
 
   @Override
   public Option<HoodieCompactionPlan> execute() {
+
     if (!config.getWriteConcurrencyMode().supportsOptimisticConcurrencyControl()
         && !config.getFailedWritesCleanPolicy().isLazy()) {
       // TODO(yihua): this validation is removed for Java client used by kafka-connect.  Need to revisit this.
@@ -89,12 +90,15 @@ public class ScheduleCompactionActionExecutor<T extends HoodieRecordPayload, I, 
               + conflictingInstants);
     }
 
+    // 生成压缩计划
     HoodieCompactionPlan plan = scheduleCompaction();
+    // 有压缩计划写到timeline 上
     if (plan != null && (plan.getOperations() != null) && (!plan.getOperations().isEmpty())) {
       extraMetadata.ifPresent(plan::setExtraMetadata);
       HoodieInstant compactionInstant =
           new HoodieInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.COMPACTION_ACTION, instantTime);
       try {
+        // 在timeline 写 compact request 事件
         table.getActiveTimeline().saveToCompactionRequested(compactionInstant,
             TimelineMetadataUtils.serializeCompactionPlan(plan));
       } catch (IOException ioe) {
@@ -108,6 +112,7 @@ public class ScheduleCompactionActionExecutor<T extends HoodieRecordPayload, I, 
   private HoodieCompactionPlan scheduleCompaction() {
     LOG.info("Checking if compaction needs to be run on " + config.getBasePath());
     // judge if we need to compact according to num delta commits and time elapsed
+    //  判断是否要压缩
     boolean compactable = needCompact(config.getInlineCompactTriggerStrategy());
     if (compactable) {
       LOG.info("Generating compaction plan for merge on read table " + config.getBasePath());
@@ -128,17 +133,22 @@ public class ScheduleCompactionActionExecutor<T extends HoodieRecordPayload, I, 
   }
 
   private Pair<Integer, String> getLatestDeltaCommitInfo() {
+    //  commit、replacecommit
     Option<HoodieInstant> lastCompaction = table.getActiveTimeline().getCommitTimeline()
         .filterCompletedInstants().lastInstant();
+    // DeltaCommit
     HoodieTimeline deltaCommits = table.getActiveTimeline().getDeltaCommitTimeline();
 
     String latestInstantTs;
     final int deltaCommitsSinceLastCompaction;
     if (lastCompaction.isPresent()) {
       latestInstantTs = lastCompaction.get().getTimestamp();
+      //  查找lastCompaction 以后的 deltaCommits
       deltaCommitsSinceLastCompaction = deltaCommits.findInstantsAfter(latestInstantTs, Integer.MAX_VALUE).countInstants();
     } else {
+      // 最新deltaCommits 时间
       latestInstantTs = deltaCommits.firstInstant().get().getTimestamp();
+      // latestInstantTs 以后的deltaCommits 数量
       deltaCommitsSinceLastCompaction = deltaCommits.findInstantsAfterOrEquals(latestInstantTs, Integer.MAX_VALUE).countInstants();
     }
     return Pair.of(deltaCommitsSinceLastCompaction, latestInstantTs);
@@ -148,8 +158,10 @@ public class ScheduleCompactionActionExecutor<T extends HoodieRecordPayload, I, 
     boolean compactable;
     // get deltaCommitsSinceLastCompaction and lastCompactionTs
     Pair<Integer, String> latestDeltaCommitInfo = getLatestDeltaCommitInfo();
+
     int inlineCompactDeltaCommitMax = config.getInlineCompactDeltaCommitMax();
     int inlineCompactDeltaSecondsMax = config.getInlineCompactDeltaSecondsMax();
+
     switch (compactionTriggerStrategy) {
       case NUM_COMMITS:
         compactable = inlineCompactDeltaCommitMax <= latestDeltaCommitInfo.getLeft();

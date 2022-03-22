@@ -19,6 +19,7 @@
 package org.apache.hudi.sink;
 
 import org.apache.hudi.client.HoodieFlinkWriteClient;
+import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.configuration.FlinkOptions;
 import org.apache.hudi.sink.utils.NonThrownExecutor;
 import org.apache.hudi.util.StreamerUtil;
@@ -30,6 +31,7 @@ import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
+import org.mortbay.log.Log;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,6 +66,10 @@ public class CleanFunction<T> extends AbstractRichFunction
       // local timeline is very probably to fall behind with the remote one.
       this.writeClient = StreamerUtil.createWriteClient(conf, getRuntimeContext(), false);
       this.executor = NonThrownExecutor.builder(LOG).build();
+
+      String instantTime = HoodieActiveTimeline.createNewInstantTime();
+      writeClient.clean(instantTime);
+
     }
   }
 

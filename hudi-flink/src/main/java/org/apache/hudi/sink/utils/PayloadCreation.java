@@ -59,6 +59,7 @@ public class PayloadCreation implements Serializable {
     String preCombineField = OptionsResolver.getPreCombineField(conf);
     boolean needCombine = conf.getBoolean(FlinkOptions.PRE_COMBINE)
         || WriteOperationType.fromValue(conf.getString(FlinkOptions.OPERATION)) == WriteOperationType.UPSERT;
+    //  upsert 会预聚合
     boolean shouldCombine = needCombine && preCombineField != null;
 
     final Class<?>[] argTypes;
@@ -70,12 +71,14 @@ public class PayloadCreation implements Serializable {
     }
     final String clazz = conf.getString(FlinkOptions.PAYLOAD_CLASS_NAME);
     constructor = ReflectionUtils.getClass(clazz).getConstructor(argTypes);
+
     return new PayloadCreation(shouldCombine, constructor, preCombineField);
   }
 
   public HoodieRecordPayload<?> createPayload(GenericRecord record) throws Exception {
     if (shouldCombine) {
       ValidationUtils.checkState(preCombineField != null);
+
       Comparable<?> orderingVal = (Comparable<?>) HoodieAvroUtils.getNestedFieldVal(record,
           preCombineField, false);
       return (HoodieRecordPayload<?>) constructor.newInstance(record, orderingVal);

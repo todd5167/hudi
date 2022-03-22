@@ -76,6 +76,7 @@ public class MarkerBasedRollbackStrategy<T extends HoodieRecordPayload, I, K, O>
     try {
       List<String> markerPaths = MarkerBasedRollbackUtils.getAllMarkerPaths(
           table, context, instantToRollback.getTimestamp(), config.getRollbackParallelism());
+
       int parallelism = Math.max(Math.min(markerPaths.size(), config.getRollbackParallelism()), 1);
       return context.map(markerPaths, markerFilePath -> {
         String typeStr = markerFilePath.substring(markerFilePath.lastIndexOf(".") + 1);
@@ -83,6 +84,7 @@ public class MarkerBasedRollbackStrategy<T extends HoodieRecordPayload, I, K, O>
         switch (type) {
           case MERGE:
           case CREATE:
+            // 找到要删除的文件
             String fileToDelete = WriteMarkers.stripMarkerSuffix(markerFilePath);
             Path fullDeletePath = new Path(basePath, fileToDelete);
             String partitionPath = FSUtils.getRelativePartitionPath(new Path(basePath), fullDeletePath.getParent());
@@ -90,6 +92,7 @@ public class MarkerBasedRollbackStrategy<T extends HoodieRecordPayload, I, K, O>
                 Collections.singletonList(fullDeletePath.toString()),
                 Collections.emptyMap());
           case APPEND:
+            //  数据追加
             return getRollbackRequestForAppend(WriteMarkers.stripMarkerSuffix(markerFilePath));
           default:
             throw new HoodieRollbackException("Unknown marker type, during rollback of " + instantToRollback);
@@ -100,12 +103,22 @@ public class MarkerBasedRollbackStrategy<T extends HoodieRecordPayload, I, K, O>
     }
   }
 
+  /**
+   *    append 数据的delete
+   * @param appendBaseFilePath
+   * @return
+   * @throws IOException
+   */
   protected HoodieRollbackRequest getRollbackRequestForAppend(String appendBaseFilePath) throws IOException {
+
     Path baseFilePathForAppend = new Path(basePath, appendBaseFilePath);
     String fileId = FSUtils.getFileIdFromFilePath(baseFilePathForAppend);
     String baseCommitTime = FSUtils.getCommitTime(baseFilePathForAppend.getName());
+
     String partitionPath = FSUtils.getRelativePartitionPath(new Path(basePath), new Path(basePath, appendBaseFilePath).getParent());
+    //  获取分区log 文件
     Map<FileStatus, Long> writtenLogFileSizeMap = getWrittenLogFileSizeMap(partitionPath, baseCommitTime, fileId);
+
     Map<String, Long> writtenLogFileStrSizeMap = new HashMap<>();
     for (Map.Entry<FileStatus, Long> entry : writtenLogFileSizeMap.entrySet()) {
       writtenLogFileStrSizeMap.put(entry.getKey().getPath().toString(), entry.getValue());
@@ -114,6 +127,7 @@ public class MarkerBasedRollbackStrategy<T extends HoodieRecordPayload, I, K, O>
   }
 
   /**
+   *   返回相应 baseCommitTime 的写入日志文件大小映射，以帮助元数据表同步。
    * Returns written log file size map for the respective baseCommitTime to assist in metadata table syncing.
    *
    * @param partitionPathStr partition path of interest
@@ -125,7 +139,10 @@ public class MarkerBasedRollbackStrategy<T extends HoodieRecordPayload, I, K, O>
   private Map<FileStatus, Long> getWrittenLogFileSizeMap(String partitionPathStr, String baseCommitTime, String fileId) throws IOException {
     // collect all log files that is supposed to be deleted with this rollback
     return FSUtils.getAllLogFiles(table.getMetaClient().getFs(),
-        FSUtils.getPartitionPath(config.getBasePath(), partitionPathStr), fileId, HoodieFileFormat.HOODIE_LOG.getFileExtension(), baseCommitTime)
+        FSUtils.getPartitionPath(config.getBasePath(), partitionPathStr),
+        fileId,
+        HoodieFileFormat.HOODIE_LOG.getFileExtension(),
+        baseCommitTime)
         .collect(Collectors.toMap(HoodieLogFile::getFileStatus, value -> value.getFileStatus().getLen()));
   }
 }

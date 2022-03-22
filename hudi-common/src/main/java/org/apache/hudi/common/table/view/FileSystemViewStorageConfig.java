@@ -32,6 +32,9 @@ import java.util.Properties;
 import java.util.stream.Collectors;
 
 /**
+ *
+ *    控制 Hudi 如何存储文件元数据的配置，用于事务处理和查询。
+ *
  * File System View Storage Configurations.
  */
 @ConfigClassProperty(name = "File System View Storage Configurations",

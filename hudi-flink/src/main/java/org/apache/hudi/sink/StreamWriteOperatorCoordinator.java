@@ -18,6 +18,7 @@
 
 package org.apache.hudi.sink;
 
+import org.apache.flink.util.function.ThrowingRunnable;
 import org.apache.hudi.client.HoodieFlinkWriteClient;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.model.HoodieTableType;
@@ -182,14 +183,17 @@ public class StreamWriteOperatorCoordinator
   public void close() throws Exception {
     // teardown the resource
     if (executor != null) {
+      LOG.info("-----------executor will close...........");
       executor.close();
     }
     if (hiveSyncExecutor != null) {
+      LOG.info("-----------hiveSyncExecutor will close...........");
       hiveSyncExecutor.close();
     }
     // the write client must close after the executor service
     // because the task in the service may send requests to the embedded timeline service.
     if (writeClient != null) {
+      LOG.info("-----------writeClient will close...........");
       writeClient.close();
     }
     this.eventBuffer = null;
@@ -222,16 +226,22 @@ public class StreamWriteOperatorCoordinator
           // for streaming mode, commits the ever received events anyway,
           // the stream write task snapshot and flush the data buffer synchronously in sequence,
           // so a successful checkpoint subsumes the old one(follows the checkpoint subsuming contract)
+
+          // 1. 元数据信息写入
+          // 提交 元数据信息，可能会有冲突
           final boolean committed = commitInstant(this.instant, checkpointId);
 
+          //2. 调度压缩，压缩时执行clean
           if (tableState.scheduleCompaction) {
             // if async compaction is on, schedule the compaction
             CompactionUtil.scheduleCompaction(metaClient, writeClient, tableState.isDeltaTimeCompaction, committed);
           }
-
+          //3. 同步元数据
           if (committed) {
+
             // start new instant.
             startInstant();
+
             // sync Hive if is enabled
             syncHiveIfEnabled();
           }
@@ -246,21 +256,27 @@ public class StreamWriteOperatorCoordinator
 
   @Override
   public void handleEventFromOperator(int i, OperatorEvent operatorEvent) {
-    executor.execute(
-        () -> {
-          // no event to handle
-          ValidationUtils.checkState(operatorEvent instanceof WriteMetadataEvent,
-              "The coordinator can only handle WriteMetaEvent");
-          WriteMetadataEvent event = (WriteMetadataEvent) operatorEvent;
-          if (event.isBootstrap()) {
-            handleBootstrapEvent(event);
-          } else if (event.isEndInput()) {
-            handleEndInputEvent(event);
-          } else {
-            handleWriteMetaEvent(event);
-          }
-        }, "handle write metadata event for instant %s", this.instant
-    );
+    // no event to handle
+    ValidationUtils.checkState(operatorEvent instanceof WriteMetadataEvent,
+            "The coordinator can only handle WriteMetaEvent");
+    WriteMetadataEvent event = (WriteMetadataEvent) operatorEvent;
+
+    if (event.isEndInput()) {
+      // 同步处理 有界数据源的最后一次输入
+      handleEndInputEvent(event);
+    } else {
+      executor.execute(
+          () -> {
+            if (event.isBootstrap()) {
+              handleBootstrapEvent(event);
+            } else {
+              handleWriteMetaEvent(event);
+            }
+          }, "handle write metadata event for instant %s", this.instant
+      );
+
+    }
+
   }
 
   @Override
@@ -331,14 +347,19 @@ public class StreamWriteOperatorCoordinator
     // put the assignment in front of metadata generation,
     // because the instant request from write task is asynchronous.
     this.instant = instant;
+    // start commit
     this.writeClient.startCommitWithTime(instant, tableState.commitAction);
+    //   request ---> inflight
     this.metaClient.getActiveTimeline().transitionRequestedToInflight(tableState.commitAction, this.instant);
+
     LOG.info("Create instant [{}] for table [{}] with type [{}]", this.instant,
         this.conf.getString(FlinkOptions.TABLE_NAME), conf.getString(FlinkOptions.TABLE_TYPE));
   }
 
   /**
    * Initializes the instant.
+   *
+   *   checkpoint 完成，但是没有被提交元数据。 初始化时会被重新体积。
    *
    * <p>Recommits the last inflight instant if the write metadata checkpoint successfully
    * but was not committed due to some rare cases.
@@ -349,6 +370,7 @@ public class StreamWriteOperatorCoordinator
   private void initInstant(String instant) {
     HoodieTimeline completedTimeline =
         StreamerUtil.createMetaClient(conf).getActiveTimeline().filterCompletedInstants();
+
     executor.execute(() -> {
       if (instant.equals("") || completedTimeline.containsInstant(instant)) {
         // the last instant committed successfully
@@ -373,10 +395,18 @@ public class StreamWriteOperatorCoordinator
   }
 
   private void handleEndInputEvent(WriteMetadataEvent event) {
+
     addEventToBuffer(event);
     if (allEventsReceived()) {
       // start to commit the instant.
-      commitInstant(this.instant);
+      boolean committed = commitInstant(this.instant, -1);
+
+      // 处理batch 事件时执行一次压缩
+      if (tableState.scheduleCompaction) {
+        // if async compaction is on, schedule the compaction
+        CompactionUtil.scheduleCompaction(metaClient, writeClient, tableState.isDeltaTimeCompaction, committed);
+      }
+
       // The executor thread inherits the classloader of the #handleEventFromOperator
       // caller, which is a AppClassLoader.
       Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
@@ -441,7 +471,7 @@ public class StreamWriteOperatorCoordinator
       // The last checkpoint finished successfully.
       return false;
     }
-
+    //    所有  operator的 eventBuffer
     List<WriteStatus> writeResults = Arrays.stream(eventBuffer)
         .filter(Objects::nonNull)
         .map(WriteMetadataEvent::getWriteStatuses)
@@ -451,15 +481,21 @@ public class StreamWriteOperatorCoordinator
     if (writeResults.size() == 0) {
       // No data has written, reset the buffer and returns early
       reset();
+
       // Send commit ack event to the write function to unblock the flushing
       sendCommitAckEvents(checkpointId);
+
       return false;
     }
+
+    // 提交subtask 写入的数据的统计信息
     doCommit(instant, writeResults);
     return true;
   }
 
   /**
+   *   生成有效的commit时间
+   *
    * Performs the actual commit action.
    */
   @SuppressWarnings("unchecked")
@@ -479,12 +515,14 @@ public class StreamWriteOperatorCoordinator
       final Map<String, List<String>> partitionToReplacedFileIds = tableState.isOverwrite
           ? writeClient.getPartitionToReplacedFileIds(tableState.operationType, writeResults)
           : Collections.emptyMap();
+      //   提交
       boolean success = writeClient.commit(instant, writeResults, Option.of(checkpointCommitMetadata),
           tableState.commitAction, partitionToReplacedFileIds);
       if (success) {
         reset();
         LOG.info("Commit instant [{}] success!", instant);
       } else {
+        //  提交失败
         throw new HoodieException(String.format("Commit instant [%s] failed!", instant));
       }
     } else {
@@ -497,7 +535,8 @@ public class StreamWriteOperatorCoordinator
           ws.getErrors().forEach((key, value) -> LOG.trace("Error for key:" + key + " and value " + value));
         }
       });
-      // Rolls back instant
+
+      // Rolls back instant   回滚
       writeClient.rollback(instant);
       throw new HoodieException(String.format("Commit instant [%s] failed and rolled back !", instant));
     }

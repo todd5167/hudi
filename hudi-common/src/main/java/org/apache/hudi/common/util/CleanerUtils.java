@@ -138,6 +138,7 @@ public class CleanerUtils {
         // No action needed for cleaning policy NEVER
         break;
       case COMMIT_ACTION:
+        //  提交
         // For any other actions, perform rollback of failed writes
         if (cleaningPolicy.isEager()) {
           rollbackFailedWritesFunc.apply();

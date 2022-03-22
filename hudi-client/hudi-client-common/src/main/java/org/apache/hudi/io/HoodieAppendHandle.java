@@ -78,11 +78,12 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
   private static final AtomicLong RECORD_COUNTER = new AtomicLong(1);
 
   protected final String fileId;
+  //   数据缓存
   // Buffer for holding records in memory before they are flushed to disk
   private final List<IndexedRecord> recordList = new ArrayList<>();
   // Buffer for holding records (to be deleted) in memory before they are flushed to disk
   private final List<HoodieKey> keysToDelete = new ArrayList<>();
-  // Incoming records to be written to logs.
+  // Incoming records to be written to wrlogs.
   protected Iterator<HoodieRecord<T>> recordItr;
   // Writer to log into the file group's latest slice.
   protected Writer writer;
@@ -105,8 +106,9 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
   protected long estimatedNumberOfBytesWritten;
   // Number of records that must be written to meet the max block size for a log block
   private int numberOfRecords = 0;
-  // Max block size to limit to for a log block
+  // Max block size to limit to for a log block     256M
   private final int maxBlockSize = config.getLogFileDataBlockMaxSize();
+
   // Header metadata for a log block
   protected final Map<HeaderMetadataType, String> header = new HashMap<>();
   private SizeEstimator<HoodieRecord> sizeEstimator;
@@ -117,7 +119,9 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
                             String partitionPath, String fileId, Iterator<HoodieRecord<T>> recordItr, TaskContextSupplier taskContextSupplier) {
     super(config, instantTime, partitionPath, fileId, hoodieTable, taskContextSupplier);
     this.fileId = fileId;
+    //  要写入的数据
     this.recordItr = recordItr;
+    // 数据大小预估器
     sizeEstimator = new DefaultSizeEstimator();
     this.statuses = new ArrayList<>();
     this.recordProperties.putAll(config.getProps());
@@ -132,6 +136,7 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
     if (doInit) {
       // extract some information from the first record
       SliceView rtView = hoodieTable.getSliceView();
+      //   读取最新文件切片,  fileSlice 包含最多一个base file 和多个logfile。
       Option<FileSlice> fileSlice = rtView.getLatestFileSlice(partitionPath, fileId);
       // Set the base commit time as the current instantTime for new inserts into log files
       String baseInstantTime;
@@ -154,6 +159,7 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
       writeStatus.setPartitionPath(partitionPath);
       averageRecordSize = sizeEstimator.sizeEstimate(record);
 
+      //  写状态信息
       HoodieDeltaWriteStat deltaWriteStat = (HoodieDeltaWriteStat) writeStatus.getStat();
       deltaWriteStat.setPrevCommit(baseInstantTime);
       deltaWriteStat.setPartitionPath(partitionPath);
@@ -162,17 +168,16 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
       deltaWriteStat.setLogFiles(logFiles);
 
       try {
+        //  分区元数据
         //save hoodie partition meta in the partition path
         HoodiePartitionMetadata partitionMetadata = new HoodiePartitionMetadata(fs, baseInstantTime,
             new Path(config.getBasePath()), FSUtils.getPartitionPath(config.getBasePath(), partitionPath));
         partitionMetadata.trySave(getPartitionId());
 
-        // Since the actual log file written to can be different based on when rollover happens, we use the
-        // base file to denote some log appends happened on a slice. writeToken will still fence concurrent
-        // writers.
-        // https://issues.apache.org/jira/browse/HUDI-1517
+        //  APPEND 操作
         createMarkerFile(partitionPath, FSUtils.makeDataFileName(baseInstantTime, writeToken, fileId, hoodieTable.getBaseFileExtension()));
 
+        // 初始化时创建 HoodieLogFormatWriter
         this.writer = createLogWriter(fileSlice, baseInstantTime);
       } catch (Exception e) {
         LOG.error("Error in update task at commit " + instantTime, e);
@@ -192,33 +197,50 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
     return hoodieRecord.getCurrentLocation() != null;
   }
 
+  /**
+   *
+   * @param hoodieRecord
+   * @return
+   */
   private Option<IndexedRecord> getIndexedRecord(HoodieRecord<T> hoodieRecord) {
     Option<Map<String, String>> recordMetadata = hoodieRecord.getData().getMetadata();
     try {
       // Pass the isUpdateRecord to the props for HoodieRecordPayload to judge
       // Whether it is an update or insert record.
       boolean isUpdateRecord = isUpdateRecord(hoodieRecord);
+
       // If the format can not record the operation field, nullify the DELETE payload manually.
+      //  delete 数据处理
       boolean nullifyPayload = HoodieOperation.isDelete(hoodieRecord.getOperation()) && !config.allowOperationMetadataField();
       recordProperties.put(HoodiePayloadProps.PAYLOAD_IS_UPDATE_RECORD_FOR_MOR, String.valueOf(isUpdateRecord));
+
+      // 从字节反序列化具体数据
       Option<IndexedRecord> avroRecord = nullifyPayload ? Option.empty() : hoodieRecord.getData().getInsertValue(tableSchema, recordProperties);
       if (avroRecord.isPresent()) {
         if (avroRecord.get().equals(IGNORE_RECORD)) {
           return avroRecord;
         }
         // Convert GenericRecord to GenericRecord with hoodie commit metadata in schema
+        // 为GenericRecord 绑定 hoodie meta信息
         GenericRecord rewriteRecord = rewriteRecord((GenericRecord) avroRecord.get());
         avroRecord = Option.of(rewriteRecord);
+        // 生成ID
         String seqId =
             HoodieRecord.generateSequenceId(instantTime, getPartitionId(), RECORD_COUNTER.getAndIncrement());
+
+        // 配置了填充元数据列，则为数据填充元数据列
         if (config.populateMetaFields()) {
+          //  添加Record
           HoodieAvroUtils.addHoodieKeyToRecord(rewriteRecord, hoodieRecord.getRecordKey(),
               hoodieRecord.getPartitionPath(), fileId);
           HoodieAvroUtils.addCommitMetadataToRecord(rewriteRecord, instantTime, seqId);
         }
+
+        // 保存数据的Operation    I,U
         if (config.allowOperationMetadataField()) {
           HoodieAvroUtils.addOperationToRecord(rewriteRecord, hoodieRecord.getOperation());
         }
+
         if (isUpdateRecord) {
           updatedRecordsWritten++;
         } else {
@@ -226,6 +248,7 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
         }
         recordsWritten++;
       } else {
+        // deleted 数据标识
         recordsDeleted++;
       }
 
@@ -234,6 +257,7 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
       // part of marking
       // record successful.
       hoodieRecord.deflate();
+
       return avroRecord;
     } catch (Exception e) {
       LOG.error("Error writing record  " + hoodieRecord, e);
@@ -323,7 +347,9 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
     if (stat.getPath() == null) {
       // first time writing to this log block.
       updateWriteStatus(stat, result);
+
     } else if (stat.getPath().endsWith(result.logFile().getFileName())) {
+
       // append/continued writing to the same log file
       stat.setLogOffset(Math.min(stat.getLogOffset(), result.offset()));
       stat.setFileSizeInBytes(stat.getFileSizeInBytes() + result.size());
@@ -343,37 +369,56 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
     timer.startTimer();
   }
 
+  /**
+   *  针对update 将初始时传入的数据直接下发
+   */
   public void doAppend() {
     while (recordItr.hasNext()) {
       HoodieRecord record = recordItr.next();
+      //  初始化
       init(record);
+
+      // flush 数据到硬盘
       flushToDiskIfRequired(record);
+      // 写缓存
       writeToBuffer(record);
     }
+    // append data
     appendDataAndDeleteBlocks(header);
+
     estimatedNumberOfBytesWritten += averageRecordSize * numberOfRecords;
   }
 
   protected void appendDataAndDeleteBlocks(Map<HeaderMetadataType, String> header) {
     try {
+      //  Header metadata for a log block    header 元数据
       header.put(HoodieLogBlock.HeaderMetadataType.INSTANT_TIME, instantTime);
       header.put(HoodieLogBlock.HeaderMetadataType.SCHEMA, writeSchemaWithMetaFields.toString());
+
+      // 最多包含 DataBlock 和 DeleteBlock
       List<HoodieLogBlock> blocks = new ArrayList<>(2);
+
       if (recordList.size() > 0) {
         if (config.populateMetaFields()) {
-          blocks.add(HoodieDataBlock.getBlock(hoodieTable.getLogDataBlockFormat(), recordList, header));
+          // flink ==> 从元数据列抽取keyField, 并构建 HoodieAvroDataBlock。
+          HoodieLogBlock dataBlock = HoodieDataBlock.getBlock(hoodieTable.getLogDataBlockFormat(), recordList, header);
+          blocks.add(dataBlock);
         } else {
           final String keyField = hoodieTable.getMetaClient().getTableConfig().getRecordKeyFieldProp();
           blocks.add(HoodieDataBlock.getBlock(hoodieTable.getLogDataBlockFormat(), recordList, header, keyField));
         }
       }
+      //  有需要删除的record，添加 HoodieDeleteBlock
       if (keysToDelete.size() > 0) {
         blocks.add(new HoodieDeleteBlock(keysToDelete.toArray(new HoodieKey[keysToDelete.size()]), header));
       }
 
       if (blocks.size() > 0) {
+        //  由 HoodieLogFormatWriter 写入 HoodieLogBlock
         AppendResult appendResult = writer.appendBlocks(blocks);
+        //  将写入结果 写到状态中
         processAppendResult(appendResult);
+
         recordList.clear();
         keysToDelete.clear();
       }
@@ -392,8 +437,11 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
   public void write(HoodieRecord record, Option<IndexedRecord> insertValue) {
     Option<Map<String, String>> recordMetadata = record.getData().getMetadata();
     try {
+      // 初始化fileSlice、HoodieLogFormatWriter、marker
       init(record);
+      // 缓存数据大小达到 maxBlockSize （默认256M） 写出到
       flushToDiskIfRequired(record);
+      // 为HoodieRecord 填充 hoodie meta 字段并转成avro数据格式存储到缓存
       writeToBuffer(record);
     } catch (Throwable t) {
       // Not throwing exception from here, since we don't want to fail the entire job
@@ -407,6 +455,7 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
   public List<WriteStatus> close() {
     try {
       // flush any remaining records to disk
+      // 将数据从内存刷出到DFS
       appendDataAndDeleteBlocks(header);
       recordItr = null;
       if (writer != null) {
@@ -464,12 +513,15 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
       return;
     }
 
+    // FlinkAppend 不需要更新location
     // update the new location of the record, so we know where to find it next
     if (needsUpdateLocation()) {
       record.unseal();
       record.setNewLocation(new HoodieRecordLocation(instantTime, fileId));
       record.seal();
     }
+
+    //  填充recordList 或者 deleteList， avro 数据
     Option<IndexedRecord> indexedRecord = getIndexedRecord(record);
     if (indexedRecord.isPresent()) {
       // Skip the Ignore Record.
@@ -477,22 +529,30 @@ public class HoodieAppendHandle<T extends HoodieRecordPayload, I, K, O> extends 
         recordList.add(indexedRecord.get());
       }
     } else {
+      //  要删除的数据
       keysToDelete.add(record.getKey());
     }
     numberOfRecords++;
   }
 
   /**
+   *  数据条数达到最大block内存，则刷出
+   *
    * Checks if the number of records have reached the set threshold and then flushes the records to disk.
    */
   private void flushToDiskIfRequired(HoodieRecord record) {
     // Append if max number of records reached to achieve block size
+    //        256 条 =     256M / 1 M
+
     if (numberOfRecords >= (int) (maxBlockSize / averageRecordSize)) {
       // Recompute averageRecordSize before writing a new block and update existing value with
       // avg of new and old
       LOG.info("AvgRecordSize => " + averageRecordSize);
+      //  重新计算 averageRecordSize
       averageRecordSize = (averageRecordSize + sizeEstimator.sizeEstimate(record)) / 2;
+      //  flush to disk
       appendDataAndDeleteBlocks(header);
+
       estimatedNumberOfBytesWritten += averageRecordSize * numberOfRecords;
       numberOfRecords = 0;
     }

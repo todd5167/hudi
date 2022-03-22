@@ -48,6 +48,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
+ *   在文件组级别逻辑执行的所有写操作的基类。
  * Base class for all write operations logically performed at the file group level.
  */
 public abstract class HoodieWriteHandle<T extends HoodieRecordPayload, I, K, O> extends HoodieIOHandle<T, I, K, O> {
@@ -57,6 +58,7 @@ public abstract class HoodieWriteHandle<T extends HoodieRecordPayload, I, K, O> 
   /**
    * A special record returned by {@link HoodieRecordPayload}, which means
    * {@link HoodieWriteHandle} should just skip this record.
+   *
    * This record is only used for {@link HoodieRecordPayload} currently, so it should not
    * shuffle though network, we can compare the record locally by the equal method.
    * The HoodieRecordPayload#combineAndGetUpdateValue and HoodieRecordPayload#getInsertValue
@@ -119,6 +121,7 @@ public abstract class HoodieWriteHandle<T extends HoodieRecordPayload, I, K, O> 
     this.writeStatus = (WriteStatus) ReflectionUtils.loadClass(config.getWriteStatusClassName(),
         !hoodieTable.getIndex().isImplicitWithStorage(), config.getWriteStatusFailureFraction());
     this.taskContextSupplier = taskContextSupplier;
+
     this.writeToken = makeWriteToken();
   }
 
@@ -203,6 +206,9 @@ public abstract class HoodieWriteHandle<T extends HoodieRecordPayload, I, K, O> 
   }
 
   /**
+   *   调用入口
+   *  CopyOnWriteInsertHandler#consumeOneRecord(org.apache.hudi.execution.HoodieLazyInsertIterable.HoodieInsertValueGenResult)
+   *
    * Perform the actual writing of the given record into the backing file.
    */
   public void write(HoodieRecord record, Option<IndexedRecord> avroRecord, Option<Exception> exception) {
@@ -212,6 +218,7 @@ public abstract class HoodieWriteHandle<T extends HoodieRecordPayload, I, K, O> 
       writeStatus.markFailure(record, exception.get(), recordMetadata);
       LOG.error("Error writing record " + record, exception.get());
     } else {
+      //  数据写入
       write(record, avroRecord);
     }
   }

@@ -68,8 +68,24 @@ public class HoodieFlinkMergeOnReadTable<T extends HoodieRecordPayload>
       List<HoodieRecord<T>> hoodieRecords) {
     ValidationUtils.checkArgument(writeHandle instanceof FlinkAppendHandle,
         "MOR write handle should always be a FlinkAppendHandle");
+    //  mor 表使用 FlinkAppendHandle
     FlinkAppendHandle<?, ?, ?, ?> appendHandle = (FlinkAppendHandle<?, ?, ?, ?>) writeHandle;
     return new FlinkUpsertDeltaCommitActionExecutor<>(context, appendHandle, config, this, instantTime, hoodieRecords).execute();
+  }
+
+  @Override
+  public HoodieWriteMetadata<List<WriteStatus>> insert(
+      HoodieEngineContext context,
+      HoodieWriteHandle<?, ?, ?, ?> writeHandle,
+      String instantTime,
+      List<HoodieRecord<T>> hoodieRecords) {
+    if (writeHandle instanceof FlinkAppendHandle) {
+      // mor 表的 insert
+      FlinkAppendHandle<?, ?, ?, ?> appendHandle = (FlinkAppendHandle<?, ?, ?, ?>) writeHandle;
+      return new FlinkUpsertDeltaCommitActionExecutor<>(context, appendHandle, config, this, instantTime, hoodieRecords).execute();
+    } else {
+      return super.insert(context, writeHandle, instantTime, hoodieRecords);
+    }
   }
 
   @Override
@@ -82,20 +98,6 @@ public class HoodieFlinkMergeOnReadTable<T extends HoodieRecordPayload>
         "MOR write handle should always be a FlinkAppendHandle");
     FlinkAppendHandle<?, ?, ?, ?> appendHandle = (FlinkAppendHandle<?, ?, ?, ?>) writeHandle;
     return new FlinkUpsertPreppedDeltaCommitActionExecutor<>(context, appendHandle, config, this, instantTime, preppedRecords).execute();
-  }
-
-  @Override
-  public HoodieWriteMetadata<List<WriteStatus>> insert(
-      HoodieEngineContext context,
-      HoodieWriteHandle<?, ?, ?, ?> writeHandle,
-      String instantTime,
-      List<HoodieRecord<T>> hoodieRecords) {
-    if (writeHandle instanceof FlinkAppendHandle) {
-      FlinkAppendHandle<?, ?, ?, ?> appendHandle = (FlinkAppendHandle<?, ?, ?, ?>) writeHandle;
-      return new FlinkUpsertDeltaCommitActionExecutor<>(context, appendHandle, config, this, instantTime, hoodieRecords).execute();
-    } else {
-      return super.insert(context, writeHandle, instantTime, hoodieRecords);
-    }
   }
 
   @Override

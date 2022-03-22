@@ -124,6 +124,7 @@ public class HoodieLogFile implements Serializable {
     String baseCommitTime = getBaseCommitTime();
     Path path = getPath();
     String extension = "." + FSUtils.getFileExtensionFromLog(path);
+    //  从当前分区的 fieldId 获取最新的版本号， 最大version +1
     int newVersion = FSUtils.computeNextLogVersion(fs, path.getParent(), fileId, extension, baseCommitTime);
     return new HoodieLogFile(new Path(path.getParent(),
         FSUtils.makeLogFileName(fileId, extension, baseCommitTime, newVersion, logWriteToken)));

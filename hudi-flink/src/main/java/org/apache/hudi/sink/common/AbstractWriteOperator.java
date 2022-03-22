@@ -45,6 +45,8 @@ public abstract class AbstractWriteOperator<I>
 
   @Override
   public void endInput() {
+    // 处理结束事件
+
     this.function.endInput();
   }
 

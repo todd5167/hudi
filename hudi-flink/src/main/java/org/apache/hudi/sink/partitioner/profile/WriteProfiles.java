@@ -72,6 +72,7 @@ public class WriteProfiles {
     if (ignoreSmallFiles) {
       return new EmptyWriteProfile(config, context);
     } else if (delta) {
+      // mor 表
       return new DeltaWriteProfile(config, context);
     } else {
       return new WriteProfile(config, context);

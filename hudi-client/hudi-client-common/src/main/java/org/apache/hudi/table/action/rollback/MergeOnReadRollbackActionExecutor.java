@@ -69,6 +69,7 @@ public class MergeOnReadRollbackActionExecutor<T extends HoodieRecordPayload, I,
 
     HoodieInstant resolvedInstant = instantToRollback;
     // Atomically un-publish all non-inflight commits
+    // 原子地 取消发布所有非进行中的提交
     if (instantToRollback.isCompleted()) {
       LOG.info("Un-publishing instant " + instantToRollback + ", deleteInstants=" + deleteInstants);
       resolvedInstant = table.getActiveTimeline().revertToInflight(instantToRollback);
@@ -88,6 +89,8 @@ public class MergeOnReadRollbackActionExecutor<T extends HoodieRecordPayload, I,
     // deleting the timeline file
     if (!resolvedInstant.isRequested()) {
       LOG.info("Unpublished " + resolvedInstant);
+
+      //  执行回滚
       allRollbackStats = executeRollback(instantToRollback, hoodieRollbackPlan);
     }
 
@@ -95,6 +98,7 @@ public class MergeOnReadRollbackActionExecutor<T extends HoodieRecordPayload, I,
 
     // Delete Inflight instants if enabled
     deleteInflightAndRequestedInstant(deleteInstants, table.getActiveTimeline(), resolvedInstant);
+
     LOG.info("Time(in ms) taken to finish rollback " + rollbackTimer.endTimer());
     return allRollbackStats;
   }

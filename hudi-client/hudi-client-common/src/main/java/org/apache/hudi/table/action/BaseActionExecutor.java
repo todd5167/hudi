@@ -31,6 +31,13 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.table.HoodieTable;
 
+/**
+ *   Action 执行器。
+ *    1. writeTableMetadata
+ *    2. execute
+ *
+ *
+ */
 public abstract class BaseActionExecutor<T extends HoodieRecordPayload, I, K, O, R> implements Serializable {
 
   protected final transient HoodieEngineContext context;

@@ -66,6 +66,7 @@ public class RollbackUtils {
       throws IOException {
     // TODO: add upgrade step if required.
     final HoodieInstant requested = HoodieTimeline.getRollbackRequestedInstant(rollbackInstant);
+    //  反序列 Avro Metadata
     return TimelineMetadataUtils.deserializeAvroMetadata(
         metaClient.getActiveTimeline().readRollbackInfoAsBytes(requested).get(), HoodieRollbackPlan.class);
   }

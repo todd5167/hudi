@@ -602,6 +602,7 @@ public class ParquetSchemaConverter {
         TimestampType timestampType = (TimestampType) type;
         if (timestampType.getPrecision() == 3) {
           return Types.primitive(PrimitiveType.PrimitiveTypeName.INT64, repetition)
+              .as(OriginalType.TIMESTAMP_MILLIS)
               .named(name);
         } else {
           return Types.primitive(PrimitiveType.PrimitiveTypeName.INT96, repetition)
@@ -611,6 +612,7 @@ public class ParquetSchemaConverter {
         LocalZonedTimestampType localZonedTimestampType = (LocalZonedTimestampType) type;
         if (localZonedTimestampType.getPrecision() == 3) {
           return Types.primitive(PrimitiveType.PrimitiveTypeName.INT64, repetition)
+              .as(OriginalType.TIMESTAMP_MILLIS)
               .named(name);
         } else {
           return Types.primitive(PrimitiveType.PrimitiveTypeName.INT96, repetition)

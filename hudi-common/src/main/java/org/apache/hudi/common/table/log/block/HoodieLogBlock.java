@@ -37,6 +37,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
+ *  Hoodie Log File 中的 block
+ *
  * Abstract class defining a block in HoodieLogFile.
  */
 public abstract class HoodieLogBlock {
@@ -225,6 +227,7 @@ public abstract class HoodieLogBlock {
   }
 
   /**
+   *    当块的延迟读取打开时，从磁盘中扩充日志块的内容。
    * When lazyReading of blocks is turned on, inflate the content of a log block from disk.
    */
   protected void inflate() throws HoodieIOException {

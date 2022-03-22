@@ -79,6 +79,7 @@ public class HoodieTableMetadataUtil {
   }
 
   /**
+   *     元数据 record
    * Finds all new files/partitions created as part of commit and creates metadata table records for them.
    *
    * @param commitMetadata

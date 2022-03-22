@@ -43,6 +43,8 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 /**
+ *
+ *    可以溢出到磁盘
  * Table FileSystemView implementation where view is stored in spillable disk using fixed memory.
  */
 public class SpillableMapBasedFileSystemView extends HoodieTableFileSystemView {

@@ -41,7 +41,13 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
+ *  merge 以及 cor 表的update
+ *
  * A {@link HoodieMergeHandle} that supports MERGE write incrementally(small data buffers).
+ *
+ *
+ *  对于一个新的数据缓冲区，它初始化并设置下一个要写入的文件路径，并在数据缓冲区写入完成时关闭文件路径。
+ *  当下一个数据缓冲区写入开始时，它会滚动到另一个新文件。 如果检查点轮次的所有数据缓冲区写入完成，它将最后一个新文件路径重命名为所需的文件名（具有预期文件 ID 的名称）。
  *
  * <p>For a new data buffer, it initialize and set up the next file path to write,
  * and closes the file path when the data buffer write finish. When next data buffer
@@ -132,10 +138,12 @@ public class FlinkMergeHandle<T extends HoodieRecordPayload, I, K, O>
     //
     // When the task finalizes in #finishWrite, the intermediate files would be cleaned.
     super.makeOldAndNewFilePaths(partitionPath, oldFileName, newFileName);
+
     rolloverPaths = new ArrayList<>();
     try {
       int rollNumber = 0;
       while (fs.exists(newFilePath)) {
+        //  newFilePath  因为重试已经存在
         // in case there is empty file because of task failover attempt.
         if (fs.getFileStatus(newFilePath).getLen() <= 0) {
           fs.delete(newFilePath, false);
@@ -145,6 +153,7 @@ public class FlinkMergeHandle<T extends HoodieRecordPayload, I, K, O>
 
         oldFilePath = newFilePath; // override the old file name
         rolloverPaths.add(oldFilePath);
+
         newFileName = newFileNameWithRollover(rollNumber++);
         newFilePath = makeNewFilePath(partitionPath, newFileName);
         LOG.warn("Duplicate write for MERGE bucket with path: " + oldFilePath + ", rolls over to new path: " + newFilePath);
@@ -167,6 +176,7 @@ public class FlinkMergeHandle<T extends HoodieRecordPayload, I, K, O>
   public List<WriteStatus> close() {
     try {
       List<WriteStatus> writeStatus = super.close();
+      // close 时 rename
       finalizeWrite();
       return writeStatus;
     } finally {
@@ -180,6 +190,9 @@ public class FlinkMergeHandle<T extends HoodieRecordPayload, I, K, O>
     return false;
   }
 
+  /**
+   *  rename
+   */
   public void finalizeWrite() {
     // The file visibility should be kept by the configured ConsistencyGuard instance.
     rolloverPaths.add(newFilePath);

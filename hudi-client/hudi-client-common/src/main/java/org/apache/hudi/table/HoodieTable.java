@@ -91,6 +91,12 @@ import java.util.stream.Stream;
 /**
  * Abstract implementation of a HoodieTable.
  *
+ *    1. 索引类型
+ *    2. metadata
+ *    3. metaClient
+ *    4. FileSystemViewManager
+ *
+ *
  * @param <T> Sub type of HoodieRecordPayload
  * @param <I> Type of inputs
  * @param <K> Type of keys
@@ -117,11 +123,14 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
 
     HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder().fromProperties(config.getMetadataConfig().getProps())
         .build();
+    //  用来获取 元数据信息
     this.metadata = HoodieTableMetadata.create(context, metadataConfig, config.getBasePath(),
         FileSystemViewStorageConfig.SPILLABLE_DIR.defaultValue());
-
+    // 创建 视图管理器
     this.viewManager = FileSystemViewManager.createViewManager(context, config.getMetadataConfig(), config.getViewStorageConfig(), config.getCommonConfig(), () -> metadata);
     this.metaClient = metaClient;
+
+    // FlinkInMemoryStateIndex
     this.index = getIndex(config, context);
     this.taskContextSupplier = context.getTaskContextSupplier();
   }
@@ -541,6 +550,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
   }
 
   /**
+   *  协调 WriteStats 和标记文件，以检测并安全删除因 Spark 重试而创建的重复数据文件。
    * Reconciles WriteStats and marker files to detect and safely delete duplicate data files created because of Spark
    * retries.
    *
@@ -567,6 +577,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
 
       // we are not including log appends here, since they are already fail-safe.
       Set<String> invalidDataPaths = getInvalidDataPaths(markers);
+
       Set<String> validDataPaths = stats.stream()
           .map(HoodieWriteStat::getPath)
           .filter(p -> p.endsWith(this.getBaseFileExtension()))
@@ -653,6 +664,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
   }
 
   /**
+   *  确保当前 writerSchema 与该数据集的最新 schema 兼容。
    * Ensure that the current writerSchema is compatible with the latest schema of this dataset.
    *
    * When inserting/updating data, we read records using the last used schema and convert them to the
@@ -735,7 +747,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
   }
 
   /**
-   * Get Table metadata writer.
+   * Get Table metadata writer.       获取表元数据编写器。
    *
    * @param triggeringInstantTimestamp - The instant that is triggering this metadata write
    * @return instance of {@link HoodieTableMetadataWriter
@@ -745,7 +757,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
   }
 
   /**
-   * Check if action type is a table service.
+   * Check if action type is a table service.     检查操作类型是否为表服务。
    * @param actionType action type of interest.
    * @return true if action represents a table service. false otherwise.
    */

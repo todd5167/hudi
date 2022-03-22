@@ -227,7 +227,7 @@ public class CleanPlanner<T extends HoodieRecordPayload, I, K, O> implements Ser
         // We have already saved the last version of file-groups for pending compaction Id
         keepVersions--;
       }
-
+      // 跳过 clean 策略包含的 fileslice
       while (fileSliceIterator.hasNext() && keepVersions > 0) {
         // Skip this most recent version
         FileSlice nextSlice = fileSliceIterator.next();
@@ -365,11 +365,14 @@ public class CleanPlanner<T extends HoodieRecordPayload, I, K, O> implements Ser
     List<CleanFileInfo> cleanPaths = new ArrayList<>();
     if (nextSlice.getBaseFile().isPresent()) {
       HoodieBaseFile dataFile = nextSlice.getBaseFile().get();
+      // CleanFileInfo
       cleanPaths.add(new CleanFileInfo(dataFile.getPath(), false));
+
       if (dataFile.getBootstrapBaseFile().isPresent() && config.shouldCleanBootstrapBaseFile()) {
         cleanPaths.add(new CleanFileInfo(dataFile.getBootstrapBaseFile().get().getPath(), true));
       }
     }
+    // mor 表把 log文件也清理
     if (hoodieTable.getMetaClient().getTableType() == HoodieTableType.MERGE_ON_READ) {
       // If merge on read, then clean the log files for the commits as well
       cleanPaths.addAll(nextSlice.getLogFiles().map(lf -> new CleanFileInfo(lf.getPath().toString(), false))
@@ -387,6 +390,7 @@ public class CleanPlanner<T extends HoodieRecordPayload, I, K, O> implements Ser
     if (policy == HoodieCleaningPolicy.KEEP_LATEST_COMMITS) {
       deletePaths = getFilesToCleanKeepingLatestCommits(partitionPath);
     } else if (policy == HoodieCleaningPolicy.KEEP_LATEST_FILE_VERSIONS) {
+
       deletePaths = getFilesToCleanKeepingLatestVersions(partitionPath);
     } else {
       throw new IllegalArgumentException("Unknown cleaning policy : " + policy.name());

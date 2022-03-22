@@ -123,7 +123,7 @@ class DefaultSource extends RelationProvider
 
       case (MERGE_ON_READ, QUERY_TYPE_SNAPSHOT_OPT_VAL, false) =>
         new MergeOnReadSnapshotRelation(sqlContext, parameters, schema, globPaths, metaClient)
-
+      //  mor  快照查询
       case (MERGE_ON_READ, QUERY_TYPE_INCREMENTAL_OPT_VAL, _) =>
         new MergeOnReadIncrementalRelation(sqlContext, parameters, schema, metaClient)
 

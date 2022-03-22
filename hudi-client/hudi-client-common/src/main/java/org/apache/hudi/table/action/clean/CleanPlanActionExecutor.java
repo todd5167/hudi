@@ -71,49 +71,62 @@ public class CleanPlanActionExecutor<T extends HoodieRecordPayload, I, K, O> ext
   HoodieCleanerPlan requestClean(HoodieEngineContext context) {
     try {
       CleanPlanner<T, I, K, O> planner = new CleanPlanner<>(context, table, config);
+      // 最早的Instant根据 清理策略
       Option<HoodieInstant> earliestInstant = planner.getEarliestCommitToRetain();
+      // 所有数据分区
       List<String> partitionsToClean = planner.getPartitionPathsToClean(earliestInstant);
 
       if (partitionsToClean.isEmpty()) {
         LOG.info("Nothing to clean here. It is already clean");
         return HoodieCleanerPlan.newBuilder().setPolicy(HoodieCleaningPolicy.KEEP_LATEST_COMMITS.name()).build();
       }
+
       LOG.info("Total Partitions to clean : " + partitionsToClean.size() + ", with policy " + config.getCleanerPolicy());
       int cleanerParallelism = Math.min(partitionsToClean.size(), config.getCleanerParallelism());
       LOG.info("Using cleanerParallelism: " + cleanerParallelism);
 
       context.setJobStatus(this.getClass().getSimpleName(), "Generates list of file slices to be cleaned");
 
+      //  <partition, List<HoodieCleanFileInfo>>
       Map<String, List<HoodieCleanFileInfo>> cleanOps = context
+          //  并行执行
           .map(partitionsToClean, partitionPathToClean -> Pair.of(partitionPathToClean, planner.getDeletePaths(partitionPathToClean)), cleanerParallelism)
           .stream()
           .collect(Collectors.toMap(Pair::getKey, y -> CleanerUtils.convertToHoodieCleanFileInfoList(y.getValue())));
 
-      return new HoodieCleanerPlan(earliestInstant
-          .map(x -> new HoodieActionInstant(x.getTimestamp(), x.getAction(), x.getState().name())).orElse(null),
-          config.getCleanerPolicy().name(), CollectionUtils.createImmutableMap(),
-          CleanPlanner.LATEST_CLEAN_PLAN_VERSION, cleanOps);
+      return new HoodieCleanerPlan(earliestInstant.map(x -> new HoodieActionInstant(x.getTimestamp(), x.getAction(), x.getState().name())).orElse(null),
+          config.getCleanerPolicy().name(),
+          CollectionUtils.createImmutableMap(),
+          CleanPlanner.LATEST_CLEAN_PLAN_VERSION,
+          cleanOps);
+
+
+
     } catch (IOException e) {
       throw new HoodieIOException("Failed to schedule clean operation", e);
     }
   }
 
-  /**
+  /**  如果有要清理的文件，则创建一个 Cleaner 计划并将它们存储在即时文件中。
    * Creates a Cleaner plan if there are files to be cleaned and stores them in instant file.
-   * Cleaner Plan contains absolute file paths.
+   * Cleaner Plan contains absolute file paths.         Cleaner Plan 包含绝对文件路径。
    *
    * @param startCleanTime Cleaner Instant Time
    * @return Cleaner Plan if generated
    */
   protected Option<HoodieCleanerPlan> requestClean(String startCleanTime) {
     final HoodieCleanerPlan cleanerPlan = requestClean(context);
+
     if ((cleanerPlan.getFilePathsToBeDeletedPerPartition() != null)
         && !cleanerPlan.getFilePathsToBeDeletedPerPartition().isEmpty()
         && cleanerPlan.getFilePathsToBeDeletedPerPartition().values().stream().mapToInt(List::size).sum() > 0) {
+
       // Only create cleaner plan which does some work
+      // 创建 clean requet
       final HoodieInstant cleanInstant = new HoodieInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.CLEAN_ACTION, startCleanTime);
       // Save to both aux and timeline folder
       try {
+        //  序列化cleanerPlan 同步到 元数据区
         table.getActiveTimeline().saveToCleanRequested(cleanInstant, TimelineMetadataUtils.serializeCleanerPlan(cleanerPlan));
         LOG.info("Requesting Cleaning with instant time " + cleanInstant);
       } catch (IOException e) {

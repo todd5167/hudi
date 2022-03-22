@@ -38,21 +38,25 @@ public class HoodieFileGroup implements Serializable {
   }
 
   /**
-   * file group id.
+   *  file group id.   分区 + fileId
    */
   private final HoodieFileGroupId fileGroupId;
 
   /**
+   *  文件切片，以 commit time 降序排列。
+   *
    * Slices of files in this group, sorted with greater commit first.
    */
   private final TreeMap<String, FileSlice> fileSlices;
 
   /**
+   *  base Timeline
    * Timeline, based on which all getter work.
    */
   private final HoodieTimeline timeline;
 
   /**
+   *  最近一次Action 的instant
    * The last completed instant, that acts as a high watermark for all getters.
    */
   private final Option<HoodieInstant> lastInstant;
@@ -76,6 +80,7 @@ public class HoodieFileGroup implements Serializable {
   }
 
   /**
+   *  添加 fileSlice
    * Potentially add a new file-slice by adding base-instant time A file-slice without any data-file and log-files can
    * exist (if a compaction just got requested).
    */
@@ -86,6 +91,8 @@ public class HoodieFileGroup implements Serializable {
   }
 
   /**
+   *    fileSlice:  <commit_time, FileSlice>
+   *
    * Add a new datafile into the file group.
    */
   public void addBaseFile(HoodieBaseFile dataFile) {
@@ -114,6 +121,9 @@ public class HoodieFileGroup implements Serializable {
   }
 
   /**
+   *  如果满足以下条件之一，则认为 FileSlice 已提交
+   *    - 有已提交的 数据文件（data file ）
+   *    - 有一些基于提交或增量提交的日志文件 (log file )
    * A FileSlice is considered committed, if one of the following is true - There is a committed data file - There are
    * some log files, that are based off a commit or delta commit.
    */

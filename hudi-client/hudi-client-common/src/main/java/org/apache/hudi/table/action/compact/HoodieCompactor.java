@@ -156,16 +156,22 @@ public abstract class HoodieCompactor<T extends HoodieRecordPayload, I, K, O> im
     // Load all the delta commits since the last compaction commit and get all the blocks to be
     // loaded and load it using CompositeAvroLogReader
     // Since a DeltaCommit is not defined yet, reading all the records. revisit this soon.
+    //   从最近一次压缩完成的时间点，加载所有  delta commits
+
+    // 最大 maxInstantTime
     String maxInstantTime = metaClient
         .getActiveTimeline().getTimelineOfActions(CollectionUtils.createSet(HoodieTimeline.COMMIT_ACTION,
             HoodieTimeline.ROLLBACK_ACTION, HoodieTimeline.DELTA_COMMIT_ACTION))
         .filterCompletedInstants().lastInstant().get().getTimestamp();
+
     long maxMemoryPerCompaction = IOUtils.getMaxMemoryPerCompaction(taskContextSupplier, config);
     LOG.info("MaxMemoryPerCompaction => " + maxMemoryPerCompaction);
-
+    // 要压缩的所有 log 文件
     List<String> logFiles = operation.getDeltaFileNames().stream().map(
         p -> new Path(FSUtils.getPartitionPath(metaClient.getBasePath(), operation.getPartitionPath()), p).toString())
         .collect(toList());
+
+
     HoodieMergedLogRecordScanner scanner = HoodieMergedLogRecordScanner.newBuilder()
         .withFileSystem(fs)
         .withBasePath(metaClient.getBasePath())
@@ -186,7 +192,7 @@ public abstract class HoodieCompactor<T extends HoodieRecordPayload, I, K, O> im
       scanner.close();
       return new ArrayList<>();
     }
-
+    //  老的 parquet 文件
     Option<HoodieBaseFile> oldDataFileOpt =
         operation.getBaseFile(metaClient.getBasePath(), operation.getPartitionPath());
 
@@ -194,9 +200,8 @@ public abstract class HoodieCompactor<T extends HoodieRecordPayload, I, K, O> im
     Iterator<List<WriteStatus>> result;
     // If the dataFile is present, perform updates else perform inserts into a new base file.
     if (oldDataFileOpt.isPresent()) {
-      result = compactionHandler.handleUpdate(instantTime, operation.getPartitionPath(),
-          operation.getFileId(), scanner.getRecords(),
-          oldDataFileOpt.get());
+      //  如果存在旧的parquet 文件则进行替换
+      result = compactionHandler.handleUpdate(instantTime, operation.getPartitionPath(), operation.getFileId(), scanner.getRecords(), oldDataFileOpt.get());
     } else {
       result = compactionHandler.handleInsert(instantTime, operation.getPartitionPath(), operation.getFileId(),
           scanner.getRecords());
@@ -226,7 +231,7 @@ public abstract class HoodieCompactor<T extends HoodieRecordPayload, I, K, O> im
    * @param hoodieTable                           Hoodie Table
    * @param config                                Hoodie Write Configuration
    * @param compactionCommitTime                  scheduled compaction commit time
-   * @param fgIdsInPendingCompactionAndClustering partition-fileId pairs for which compaction is pending
+   * @param fgIdsInPendingCompactionAndClustering partition-fileId pairs for which compaction is pending    正在压缩
    * @return Compaction Plan
    * @throws IOException when encountering errors
    */

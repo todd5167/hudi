@@ -34,10 +34,13 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
+ *
+ *  Mor表写入数据的信息汇总。  允许将小的 parquet 文件自动更正为较大的文件，而无需在 logFile 中使用索引。
+ *
  * WriteProfile for MERGE_ON_READ table type, this allows auto correction of small parquet files to larger ones
  * without the need for an index in the logFile.
  *
- * <p>Note: assumes the index can always index log files for Flink write.
+ * <p>Note: assumes the index can always index log files for Flink write.    index 始终可以索引日志文件以进行 Flink 写入。
  */
 public class DeltaWriteProfile extends WriteProfile {
   public DeltaWriteProfile(HoodieWriteConfig config, HoodieFlinkEngineContext context) {

@@ -49,9 +49,13 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
+ *   数据写入时的详情
+ *   分析 {@link BucketAssigner} 的写入统计信息，例如平均记录大小和小文件。
+ *
  * Profiling of write statistics for {@link BucketAssigner},
  * such as the average record size and small files.
  *
+ *   当时间线上有新的提交时，将重新构建配置文件。
  * <p>The profile is re-constructed when there are new commits on the timeline.
  */
 public class WriteProfile {
@@ -114,10 +118,14 @@ public class WriteProfile {
     this.basePath = new Path(config.getBasePath());
     this.smallFilesMap = new HashMap<>();
     this.recordsPerBucket = config.getCopyOnWriteInsertSplitSize();
+    //  元数据 client
     this.metaClient = StreamerUtil.createMetaClient(config.getBasePath(), context.getHadoopConf().get());
     this.metadataCache = new HashMap<>();
+
+    //  文件系统视图
     this.fsView = getFileSystemView();
-    // profile the record statistics on construction
+
+    // profile the record statistics on construction   档案建设记录统计
     recordProfile();
   }
 
@@ -180,30 +188,40 @@ public class WriteProfile {
     if (smallFilesMap.containsKey(partitionPath)) {
       return smallFilesMap.get(partitionPath);
     }
+    // 小文件列表
     List<SmallFile> smallFiles = smallFilesProfile(partitionPath);
     this.smallFilesMap.put(partitionPath, smallFiles);
     return smallFiles;
   }
 
   /**
+   *   从最新的文件系统视图返回给定分区路径中的小文件列表。
+   *
+   *   1. 从hoodie meta 文件夹中查找最新的已commit/deltacommit 的HoodieInstant。
+   *   2.
+   *
+   *
    * Returns a list of small files in the given partition path from the latest filesystem view.
    */
   protected List<SmallFile> smallFilesProfile(String partitionPath) {
     // smallFiles only for partitionPath
     List<SmallFile> smallFileLocations = new ArrayList<>();
-
+    //  从.hoodie表中过滤出 已经完成的信息。 commit or deltacommit
     HoodieTimeline commitTimeline = metaClient.getCommitsTimeline().filterCompletedInstants();
 
     if (!commitTimeline.empty()) { // if we have some commits
       HoodieInstant latestCommitTime = commitTimeline.lastInstant().get();
+
+      //  读取当前分区下的 latestCommitTime之前的所有 BaseFile。
       List<HoodieBaseFile> allFiles = fsView
           .getLatestBaseFilesBeforeOrOn(partitionPath, latestCommitTime.getTimestamp()).collect(Collectors.toList());
 
       for (HoodieBaseFile file : allFiles) {
-        // filter out the corrupted files.
+        // filter out the corrupted files.  parquet 小于100M 则认为是小文件
         if (file.getFileSize() < config.getParquetSmallFileLimit() && file.getFileSize() > 0) {
           String filename = file.getFileName();
           SmallFile sf = new SmallFile();
+          // 确定要写入的小文件
           sf.location = new HoodieRecordLocation(FSUtils.getCommitTime(filename), FSUtils.getFileId(filename));
           sf.sizeBytes = file.getFileSize();
           smallFileLocations.add(sf);
@@ -249,7 +267,9 @@ public class WriteProfile {
       return;
     }
     this.metaClient.reloadActiveTimeline();
+
     this.fsView.sync();
+
     recordProfile();
     cleanMetadataCache(this.metaClient.getCommitsTimeline().filterCompletedInstants().getInstants());
     this.smallFilesMap.clear();

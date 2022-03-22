@@ -62,10 +62,10 @@ public class Pipelines {
     if (partitionFields.length > 0) {
       RowDataKeyGen rowDataKeyGen = RowDataKeyGen.instance(conf, rowType);
       if (conf.getBoolean(FlinkOptions.WRITE_BULK_INSERT_SHUFFLE_BY_PARTITION)) {
-
         // shuffle by partition keys
         dataStream = dataStream.keyBy(rowDataKeyGen::getPartitionPath);
       }
+
       if (conf.getBoolean(FlinkOptions.WRITE_BULK_INSERT_SORT_BY_PARTITION)) {
         SortOperatorGen sortOperatorGen = new SortOperatorGen(rowType, partitionFields);
         // sort by partition keys
@@ -74,6 +74,7 @@ public class Pipelines {
                 TypeInformation.of(RowData.class),
                 sortOperatorGen.createSortOperator())
             .setParallelism(conf.getInteger(FlinkOptions.WRITE_TASKS));
+
         ExecNodeUtil.setManagedMemoryWeight(dataStream.getTransformation(),
             conf.getInteger(FlinkOptions.WRITE_SORT_MEMORY) * 1024L * 1024L);
       }
@@ -143,6 +144,7 @@ public class Pipelines {
       int defaultParallelism,
       DataStream<RowData> dataStream,
       boolean bounded) {
+
     DataStream<HoodieRecord> dataStream1 = rowDataToHoodieRecord(conf, rowType, dataStream);
 
     if (conf.getBoolean(FlinkOptions.INDEX_BOOTSTRAP_ENABLED) || bounded) {
@@ -184,6 +186,7 @@ public class Pipelines {
   public static DataStream<Object> hoodieStreamWrite(Configuration conf, int defaultParallelism, DataStream<HoodieRecord> dataStream) {
     WriteOperatorFactory<HoodieRecord> operatorFactory = StreamWriteOperator.getFactory(conf);
     return dataStream
+        //   确保同意一个id事件落同一个bucket
         // Key-by record key, to avoid multiple subtasks write to a bucket at the same time
         .keyBy(HoodieRecord::getRecordKey)
         .transform(
@@ -192,6 +195,7 @@ public class Pipelines {
             new KeyedProcessOperator<>(new BucketAssignFunction<>(conf)))
         .uid("uid_bucket_assigner_" + conf.getString(FlinkOptions.TABLE_NAME))
         .setParallelism(conf.getOptional(FlinkOptions.BUCKET_ASSIGN_TASKS).orElse(defaultParallelism))
+
         // shuffle by fileId(bucket id)
         .keyBy(record -> record.getCurrentLocation().getFileId())
         .transform("hoodie_stream_write", TypeInformation.of(Object.class), operatorFactory)
@@ -203,11 +207,14 @@ public class Pipelines {
     return dataStream.transform("compact_plan_generate",
         TypeInformation.of(CompactionPlanEvent.class),
         new CompactionPlanOperator(conf))
+
         .setParallelism(1) // plan generate must be singleton
         .rebalance()
         .transform("compact_task",
             TypeInformation.of(CompactionCommitEvent.class),
             new ProcessOperator<>(new CompactFunction(conf)))
+
+
         .setParallelism(conf.getInteger(FlinkOptions.COMPACTION_TASKS))
         .addSink(new CompactionCommitSink(conf))
         .name("compact_commit")

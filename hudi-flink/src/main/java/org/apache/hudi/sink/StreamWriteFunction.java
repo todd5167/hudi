@@ -118,7 +118,9 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
   @Override
   public void open(Configuration parameters) throws IOException {
     this.tracer = new TotalSizeTracer(this.config);
+
     initBuffer();
+
     initWriteFunction();
   }
 
@@ -180,6 +182,7 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
         this.writeFunction = (records, instantTime) -> this.writeClient.insert(records, instantTime);
         break;
       case UPSERT:
+        // 使用 hoodie client upsert
         this.writeFunction = (records, instantTime) -> this.writeClient.upsert(records, instantTime);
         break;
       case INSERT_OVERWRITE:
@@ -257,6 +260,8 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
     }
 
     /**
+     *  使用正确的分区路径和fileID 修补第一条记录。
+     *  重写集合中的第一条记录，
      * Sets up before flush: patch up the first record with correct partition path and fileID.
      *
      * <p>Note: the method may modify the given records {@code records}.
@@ -265,6 +270,9 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
       // rewrite the first record with expected fileID
       HoodieRecord<?> first = records.get(0);
       HoodieRecord<?> record = new HoodieRecord<>(first.getKey(), first.getData(), first.getOperation());
+
+      //  没啥意义吧，和record 原来的location 一致。
+      //  数据落文件地址，   <fieldID, instantTime>  72504986-c8ae-4777-b37c-0ecc067b3391_20220119094225366
       HoodieRecordLocation newLoc = new HoodieRecordLocation(first.getCurrentLocation().getInstantTime(), fileID);
       record.setCurrentLocation(newLoc);
 
@@ -372,17 +380,20 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
    */
   private void bufferRecord(HoodieRecord<?> value) {
     final String bucketID = getBucketID(value);
-
+    // <partitionPath_fieldId, DataBucket >
     DataBucket bucket = this.buckets.computeIfAbsent(bucketID,
         k -> new DataBucket(this.config.getDouble(FlinkOptions.WRITE_BATCH_SIZE), value));
     final DataItem item = DataItem.fromHoodieRecord(value);
 
+    // 将数据存储到 DataBucket 的 records
     bucket.records.add(item);
-
+    //  探测当前Bucket 是否达到最大内存大小
     boolean flushBucket = bucket.detector.detect(item);
+    //  探测当前Bucket 条数是否满足flush
     boolean flushBuffer = this.tracer.trace(bucket.detector.lastRecordSize);
+
     if (flushBucket) {
-      if (flushBucket(bucket)) {
+      if (flushBucket(bucket)) {  // 数据写出
         this.tracer.countDown(bucket.detector.totalSize);
         bucket.reset();
       }
@@ -391,6 +402,7 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
       List<DataBucket> sortedBuckets = this.buckets.values().stream()
           .sorted((b1, b2) -> Long.compare(b2.detector.totalSize, b1.detector.totalSize))
           .collect(Collectors.toList());
+
       final DataBucket bucketToFlush = sortedBuckets.get(0);
       if (flushBucket(bucketToFlush)) {
         this.tracer.countDown(bucketToFlush.detector.totalSize);
@@ -408,6 +420,7 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
 
   @SuppressWarnings("unchecked, rawtypes")
   private boolean flushBucket(DataBucket bucket) {
+
     String instant = instantToWrite(true);
 
     if (instant == null) {
@@ -439,11 +452,15 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
 
   @SuppressWarnings("unchecked, rawtypes")
   private void flushRemaining(boolean endInput) {
+    //  1.  infligt commit
+    //  TODO:  何时不为Null ??
     this.currentInstant = instantToWrite(hasData());
+
     if (this.currentInstant == null) {
       // in case there are empty checkpoints that has no input data
       throw new HoodieException("No inflight instant when flushing data!");
     }
+
     final List<WriteStatus> writeStatus;
     if (buckets.size() > 0) {
       writeStatus = new ArrayList<>();
@@ -451,21 +468,31 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
           // The records are partitioned by the bucket ID and each batch sent to
           // the writer belongs to one bucket.
           .forEach(bucket -> {
+
             List<HoodieRecord> records = bucket.writeBuffer();
+
             if (records.size() > 0) {
               if (config.getBoolean(FlinkOptions.PRE_COMBINE)) {
                 records = FlinkWriteHelper.newInstance().deduplicateRecords(records, (HoodieIndex) null, -1);
               }
+              //  数据预先写入，修改第一条数据记录，为第一条数据填充HoodieRecordLocation，表示当时record要写入的 fieldId 名称.
               bucket.preWrite(records);
-              writeStatus.addAll(writeFunction.apply(records, currentInstant));
+
+              // 通过hudiclient 将缓存的数据写入文件，返回最终的写入状态信息
+              List<WriteStatus> statuses = writeFunction.apply(records, currentInstant);
+
+              writeStatus.addAll(statuses);
               records.clear();
               bucket.reset();
             }
+
           });
     } else {
       LOG.info("No data to write in subtask [{}] for instant [{}]", taskID, currentInstant);
       writeStatus = Collections.emptyList();
     }
+
+    //  写完后向 coordinator 同步元数据
     final WriteMetadataEvent event = WriteMetadataEvent.builder()
         .taskID(taskID)
         .instantTime(currentInstant)
@@ -475,9 +502,12 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
         .build();
 
     this.eventGateway.sendEventToCoordinator(event);
+
     this.buckets.clear();
     this.tracer.reset();
+
     this.writeClient.cleanHandles();
+
     this.writeStatuses.addAll(writeStatus);
     // blocks flushing until the coordinator starts a new instant
     this.confirming = true;

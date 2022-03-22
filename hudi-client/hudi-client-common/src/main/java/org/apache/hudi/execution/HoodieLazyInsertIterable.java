@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.function.Function;
 
 /**
+ *   Lazy Iterable，它将按 partitionPath 排序的 HoodieRecords 流写入新文件。
  * Lazy Iterable, that writes a stream of HoodieRecords sorted by the partitionPath, into new files.
  */
 public abstract class HoodieLazyInsertIterable<T extends HoodieRecordPayload>
@@ -77,6 +78,8 @@ public abstract class HoodieLazyInsertIterable<T extends HoodieRecordPayload>
     this.writeHandleFactory = writeHandleFactory;
   }
 
+  //
+  //  用于缓存 HoodieRecord 和 insertValue。 我们需要它来将计算工作卸载到缓冲线程。
   // Used for caching HoodieRecord along with insertValue. We need this to offload computation work to buffering thread.
   public static class HoodieInsertValueGenResult<T extends HoodieRecord> {
     public T record;

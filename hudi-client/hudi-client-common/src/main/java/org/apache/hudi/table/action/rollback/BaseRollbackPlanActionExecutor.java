@@ -95,6 +95,7 @@ public class BaseRollbackPlanActionExecutor<T extends HoodieRecordPayload, I, K,
   }
 
   /**
+   *    如果有要回滚的文件，则创建回滚计划并将它们存储在即时文件中。 回滚计划包含绝对文件路径。
    * Creates a Rollback plan if there are files to be rolledback and stores them in instant file.
    * Rollback Plan contains absolute file paths.
    *
@@ -102,14 +103,18 @@ public class BaseRollbackPlanActionExecutor<T extends HoodieRecordPayload, I, K,
    * @return Rollback Plan if generated
    */
   protected Option<HoodieRollbackPlan> requestRollback(String startRollbackTime) {
+    //  创建 REQUESTED
     final HoodieInstant rollbackInstant = new HoodieInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.ROLLBACK_ACTION, startRollbackTime);
     try {
       List<HoodieRollbackRequest> rollbackRequests = new ArrayList<>();
       if (!instantToRollback.isRequested()) {
+        // 构建 Rollback Requests
         rollbackRequests.addAll(getRollbackStrategy().getRollbackRequests(instantToRollback));
       }
+      // rollbackPlan
       HoodieRollbackPlan rollbackPlan = new HoodieRollbackPlan(new HoodieInstantInfo(instantToRollback.getTimestamp(),
           instantToRollback.getAction()), rollbackRequests, LATEST_ROLLBACK_PLAN_VERSION);
+
       if (!skipTimelinePublish) {
         if (table.getRollbackTimeline().filterInflightsAndRequested().containsInstant(rollbackInstant.getTimestamp())) {
           LOG.warn("Request Rollback found with instant time " + rollbackInstant + ", hence skipping scheduling rollback");

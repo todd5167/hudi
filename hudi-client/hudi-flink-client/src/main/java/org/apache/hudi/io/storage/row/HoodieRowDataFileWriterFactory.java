@@ -51,6 +51,7 @@ public class HoodieRowDataFileWriterFactory {
       throws IOException {
     final String extension = FSUtils.getFileExtension(path.getName());
     if (PARQUET.getFileExtension().equals(extension)) {
+      //
       return newParquetInternalRowFileWriter(path, config, schema, hoodieTable);
     }
     throw new UnsupportedOperationException(extension + " format not supported yet.");
@@ -59,13 +60,16 @@ public class HoodieRowDataFileWriterFactory {
   private static HoodieRowDataFileWriter newParquetInternalRowFileWriter(
       Path path, HoodieWriteConfig writeConfig, RowType rowType, HoodieTable table)
       throws IOException {
+    //
     BloomFilter filter = BloomFilterFactory.createBloomFilter(
         writeConfig.getBloomFilterNumEntries(),
         writeConfig.getBloomFilterFPP(),
         writeConfig.getDynamicBloomFilterMaxNumEntries(),
         writeConfig.getBloomFilterType());
+
     HoodieRowDataParquetWriteSupport writeSupport =
         new HoodieRowDataParquetWriteSupport(table.getHadoopConf(), rowType, filter);
+
     return new HoodieRowDataParquetWriter(
         path, new HoodieRowDataParquetConfig(
         writeSupport,

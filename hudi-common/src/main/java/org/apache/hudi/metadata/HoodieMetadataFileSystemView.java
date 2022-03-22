@@ -32,6 +32,8 @@ import org.apache.hadoop.fs.Path;
 import java.io.IOException;
 
 /**
+ *
+ *   从元数据表中检索分区列表。
  * {@code HoodieTableFileSystemView} implementation that retrieved partition listings from the Metadata Table.
  */
 public class HoodieMetadataFileSystemView extends HoodieTableFileSystemView {

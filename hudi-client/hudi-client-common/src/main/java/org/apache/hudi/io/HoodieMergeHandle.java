@@ -112,19 +112,24 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
                            Iterator<HoodieRecord<T>> recordItr, String partitionPath, String fileId,
                            TaskContextSupplier taskContextSupplier, Option<BaseKeyGenerator> keyGeneratorOpt) {
     this(config, instantTime, hoodieTable, recordItr, partitionPath, fileId, taskContextSupplier,
-        hoodieTable.getBaseFileOnlyView().getLatestBaseFile(partitionPath, fileId).get(), keyGeneratorOpt);
+        hoodieTable.getBaseFileOnlyView().getLatestBaseFile(partitionPath, fileId).get(),  // 最新的base 文件
+        keyGeneratorOpt);
   }
 
   public HoodieMergeHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
                            Iterator<HoodieRecord<T>> recordItr, String partitionPath, String fileId,
                            TaskContextSupplier taskContextSupplier, HoodieBaseFile baseFile, Option<BaseKeyGenerator> keyGeneratorOpt) {
     super(config, instantTime, partitionPath, fileId, hoodieTable, taskContextSupplier);
+    // 将新记录存储到 ExternalSpillableMap
     init(fileId, recordItr);
+    // init fileWriter
     init(fileId, partitionPath, baseFile);
+
     validateAndSetAndKeyGenProps(keyGeneratorOpt, config.populateMetaFields());
   }
 
   /**
+   *  压缩时会调用
    * Called by compactor code path.
    */
   public HoodieMergeHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
@@ -152,6 +157,7 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
   }
 
   /**
+   *  提取旧文件路径，初始化 StorageWriter 和 WriteStatus。
    * Extract old file path, initialize StorageWriter and WriteStatus.
    */
   private void init(String fileId, String partitionPath, HoodieBaseFile baseFileToMerge) {
@@ -160,18 +166,24 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
     this.writtenRecordKeys = new HashSet<>();
     writeStatus.setStat(new HoodieWriteStat());
     try {
+      //  最新 basefile (parquet文件)
       String latestValidFilePath = baseFileToMerge.getFileName();
+      //  前一次commit 时间
       writeStatus.getStat().setPrevCommit(FSUtils.getCommitTime(latestValidFilePath));
 
       HoodiePartitionMetadata partitionMetadata = new HoodiePartitionMetadata(fs, instantTime,
           new Path(config.getBasePath()), FSUtils.getPartitionPath(config.getBasePath(), partitionPath));
       partitionMetadata.trySave(getPartitionId());
 
+      //  新的parquet文件名,       fileId_writeToken_instantTime_fileExtension
       String newFileName = FSUtils.makeDataFileName(instantTime, writeToken, fileId, hoodieTable.getBaseFileExtension());
+
+      // 构建 oldFilePath, newFilePath
       makeOldAndNewFilePaths(partitionPath, latestValidFilePath, newFileName);
 
       LOG.info(String.format("Merging new data into oldPath %s, as newPath %s", oldFilePath.toString(),
           newFilePath.toString()));
+
       // file name is same for all records, in this bunch
       writeStatus.setFileId(fileId);
       writeStatus.setPartitionPath(partitionPath);
@@ -208,8 +220,10 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
   protected void initializeIncomingRecordsMap() {
     try {
       // Load the new records in a map
+      //  计算merge 可用内存
       long memoryForMerge = IOUtils.getMaxMemoryPerPartitionMerge(taskContextSupplier, config);
       LOG.info("MaxMemoryPerPartitionMerge => " + memoryForMerge);
+
       this.keyToNewRecords = new ExternalSpillableMap<>(memoryForMerge, config.getSpillableMapBasePath(),
           new DefaultSizeEstimator(), new HoodieRecordSizeEstimator(tableSchema),
           config.getCommonConfig().getSpillableDiskMapType(),
@@ -230,6 +244,7 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
    * Load the new incoming records in a map and return partitionPath.
    */
   protected void init(String fileId, Iterator<HoodieRecord<T>> newRecordsItr) {
+    //  初始化 keyToNewRecords， 具有持久化能力的map
     initializeIncomingRecordsMap();
     while (newRecordsItr.hasNext()) {
       HoodieRecord<T> record = newRecordsItr.next();
@@ -239,9 +254,11 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
         record.setNewLocation(new HoodieRecordLocation(instantTime, fileId));
         record.seal();
       }
+
       // NOTE: Once Records are added to map (spillable-map), DO NOT change it as they won't persist
       keyToNewRecords.put(record.getRecordKey(), record);
     }
+
     LOG.info("Number of entries in MemoryBasedMap => "
         + ((ExternalSpillableMap) keyToNewRecords).getInMemoryMapNumEntries()
         + "Total size in bytes of MemoryBasedMap => "
@@ -250,6 +267,13 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
         + ((ExternalSpillableMap) keyToNewRecords).getSizeOfFileOnDiskInBytes());
   }
 
+  /**
+   *
+   * @param hoodieRecord   新记录
+   * @param oldRecord
+   * @param indexedRecord  新数据的 IndexedRecord avro格式
+   * @return
+   */
   private boolean writeUpdateRecord(HoodieRecord<T> hoodieRecord, GenericRecord oldRecord, Option<IndexedRecord> indexedRecord) {
     boolean isDelete = false;
     if (indexedRecord.isPresent()) {
@@ -281,21 +305,27 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
 
   protected boolean writeRecord(HoodieRecord<T> hoodieRecord, Option<IndexedRecord> indexedRecord, boolean isDelete) {
     Option recordMetadata = hoodieRecord.getData().getMetadata();
+    // 分区不一致
     if (!partitionPath.equals(hoodieRecord.getPartitionPath())) {
       HoodieUpsertException failureEx = new HoodieUpsertException("mismatched partition path, record partition: "
           + hoodieRecord.getPartitionPath() + " but trying to insert into partition: " + partitionPath);
       writeStatus.markFailure(hoodieRecord, failureEx, recordMetadata);
       return false;
     }
+
     try {
       if (indexedRecord.isPresent() && !isDelete) {
         // Convert GenericRecord to GenericRecord with hoodie commit metadata in schema
+        // 填充元数据列
         IndexedRecord recordWithMetadataInSchema = rewriteRecord((GenericRecord) indexedRecord.get());
+        //  写入 parquet
         fileWriter.writeAvroWithMetadata(recordWithMetadataInSchema, hoodieRecord);
         recordsWritten++;
       } else {
+        //  delete 数据不下发
         recordsDeleted++;
       }
+
       writeStatus.markSuccess(hoodieRecord, recordMetadata);
       // deflate record payload after recording success. This will help users access payload as a
       // part of marking
@@ -310,16 +340,20 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
   }
 
   /**
+   *   查找一张旧record。 在这里，如果我们检测到新版本出现，我们将新版本写入文件。
+   *   入口
    * Go through an old record. Here if we detect a newer version shows up, we write the new one to the file.
    */
   public void write(GenericRecord oldRecord) {
     String key = KeyGenUtils.getRecordKeyFromGenericRecord(oldRecord, keyGeneratorOpt);
     boolean copyOldRecord = true;
+    //  keyToNewRecords 保存的为最新的 record
     if (keyToNewRecords.containsKey(key)) {
       // If we have duplicate records that we are updating, then the hoodie record will be deflated after
       // writing the first record. So make a copy of the record to be merged
       HoodieRecord<T> hoodieRecord = new HoodieRecord<>(keyToNewRecords.get(key));
       try {
+        //  不为delete 则Option 不为null, combinedAvroRecord 结果为当前新记录， overwrite
         Option<IndexedRecord> combinedAvroRecord =
             hoodieRecord.getData().combineAndGetUpdateValue(oldRecord,
               useWriterSchema ? tableSchemaWithMetaFields : tableSchema,
@@ -327,17 +361,18 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
 
         if (combinedAvroRecord.isPresent() && combinedAvroRecord.get().equals(IGNORE_RECORD)) {
           // If it is an IGNORE_RECORD, just copy the old record, and do not update the new record.
+          //  只拷贝旧记录
           copyOldRecord = true;
-        } else if (writeUpdateRecord(hoodieRecord, oldRecord, combinedAvroRecord)) {
+        } else if (writeUpdateRecord(hoodieRecord, oldRecord, combinedAvroRecord)) {   // update 后的数据直接写入
           /*
-           * ONLY WHEN 1) we have an update for this key AND 2) We are able to successfully
-           * write the the combined new
-           * value
-           *
-           * We no longer need to copy the old record over.
+           * ONLY WHEN
+           *  1) we have an update for this key AND
+           *  2) We are able to successfully write the the combined new value
+           *    We no longer need to copy the old record over.
            */
           copyOldRecord = false;
         }
+
         writtenRecordKeys.add(key);
       } catch (Exception e) {
         throw new HoodieUpsertException("Failed to combine/merge new record with old value in storage, for new record {"
@@ -348,6 +383,8 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
     if (copyOldRecord) {
       // this should work as it is, since this is an existing record
       try {
+        //
+        // incoming 的数据不包含对历史数据的变更，直接下发  oldRecord
         fileWriter.writeAvro(key, oldRecord);
       } catch (IOException | RuntimeException e) {
         String errMsg = String.format("Failed to merge old record into new file for key %s from old file %s to new file %s with writerSchema %s",
@@ -359,12 +396,17 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
     }
   }
 
+  /**
+   *
+   * @throws IOException
+   */
   protected void writeIncomingRecords() throws IOException {
     // write out any pending records (this can happen when inserts are turned into updates)
     Iterator<HoodieRecord<T>> newRecordsItr = (keyToNewRecords instanceof ExternalSpillableMap)
         ? ((ExternalSpillableMap)keyToNewRecords).iterator() : keyToNewRecords.values().iterator();
     while (newRecordsItr.hasNext()) {
       HoodieRecord<T> hoodieRecord = newRecordsItr.next();
+      //  已经写入的数据不包含map中的数据，则下发map中的数据
       if (!writtenRecordKeys.contains(hoodieRecord.getRecordKey())) {
         writeInsertRecord(hoodieRecord);
       }

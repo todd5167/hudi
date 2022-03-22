@@ -104,8 +104,10 @@ public class BucketAssignFunction<K, I, O extends HoodieRecord<?>>
 
   public BucketAssignFunction(Configuration conf) {
     this.conf = conf;
+
     this.isChangingRecords = WriteOperationType.isChangingRecords(
         WriteOperationType.fromValue(conf.getString(FlinkOptions.OPERATION)));
+
     this.globalIndex = conf.getBoolean(FlinkOptions.INDEX_GLOBAL_ENABLED)
         && !conf.getBoolean(FlinkOptions.CHANGELOG_ENABLED);
   }
@@ -113,10 +115,13 @@ public class BucketAssignFunction<K, I, O extends HoodieRecord<?>>
   @Override
   public void open(Configuration parameters) throws Exception {
     super.open(parameters);
+    // 通过已有配置构建 Hoodie Client Config
     HoodieWriteConfig writeConfig = StreamerUtil.getHoodieClientConfig(this.conf, true);
+
     HoodieFlinkEngineContext context = new HoodieFlinkEngineContext(
         new SerializableConfiguration(StreamerUtil.getHadoopConf()),
         new FlinkTaskContextSupplier(getRuntimeContext()));
+    //
     this.bucketAssigner = BucketAssigners.create(
         getRuntimeContext().getIndexOfThisSubtask(),
         getRuntimeContext().getMaxNumberOfParallelSubtasks(),
@@ -125,6 +130,8 @@ public class BucketAssignFunction<K, I, O extends HoodieRecord<?>>
         HoodieTableType.valueOf(conf.getString(FlinkOptions.TABLE_TYPE)),
         context,
         writeConfig);
+
+    //   将recore 序列化为 avro 字节类型
     this.payloadCreation = PayloadCreation.instance(this.conf);
   }
 
@@ -154,6 +161,7 @@ public class BucketAssignFunction<K, I, O extends HoodieRecord<?>>
   @Override
   public void processElement(I value, Context ctx, Collector<O> out) throws Exception {
     if (value instanceof IndexRecord) {
+      // bootstrap 下发的 index Record
       IndexRecord<?> indexRecord = (IndexRecord<?>) value;
       this.indexState.update((HoodieRecordGlobalLocation) indexRecord.getCurrentLocation());
     } else {
@@ -161,6 +169,16 @@ public class BucketAssignFunction<K, I, O extends HoodieRecord<?>>
     }
   }
 
+  /**
+   *  发送两种Record:
+   *    1. update
+   *    2. insert
+   *
+   *
+   * @param record
+   * @param out
+   * @throws Exception
+   */
   @SuppressWarnings("unchecked")
   private void processRecord(HoodieRecord<?> record, Collector<O> out) throws Exception {
     // 1. put the record into the BucketAssigner;
@@ -173,38 +191,59 @@ public class BucketAssignFunction<K, I, O extends HoodieRecord<?>>
 
     // Only changing records need looking up the index for the location,
     // append only records are always recognized as INSERT.
+
     HoodieRecordGlobalLocation oldLoc = indexState.value();
     if (isChangingRecords && oldLoc != null) {
       // Set up the instant time as "U" to mark the bucket as an update bucket.
       if (!Objects.equals(oldLoc.getPartitionPath(), partitionPath)) {
+
         if (globalIndex) {
           // if partition path changes, emit a delete record for old partition path,
           // then update the index state using location with new partition path.
+          // 数据所在分区发生变更，向旧分区下发一条delete record。
+
+          // TODO  DeletePayload删除的标识是什么？？
           HoodieRecord<?> deleteRecord = new HoodieRecord<>(new HoodieKey(recordKey, oldLoc.getPartitionPath()),
               payloadCreation.createDeletePayload((BaseAvroPayload) record.getData()));
           deleteRecord.setCurrentLocation(oldLoc.toLocal("U"));
+          // 封闭该记录
           deleteRecord.seal();
           out.collect((O) deleteRecord);
         }
+
+        // 为当前 record 分配bucket
         location = getNewRecordLocation(partitionPath);
         updateIndexState(partitionPath, location);
       } else {
+        //  record key 所在分区没有发生变更， 对原来分区的 field 发起更新操作。    instantTime = U
         location = oldLoc.toLocal("U");
         this.bucketAssigner.addUpdate(partitionPath, location.getFileId());
       }
     } else {
+      // 为当前record 分配 bucket.
       location = getNewRecordLocation(partitionPath);
     }
+
     // always refresh the index
     if (isChangingRecords) {
+      //  更新当前 record key 索引信息所在 location, field id, instantTime (U/I)
       updateIndexState(partitionPath, location);
     }
+
     record.setCurrentLocation(location);
     out.collect((O) record);
   }
 
+  /**
+   *  获取新纪录的存储bucket
+   * @param partitionPath
+   * @return
+   */
   private HoodieRecordLocation getNewRecordLocation(String partitionPath) {
+    //  新创建的Bucket ---> INSERT   新桶
+    //  历史Bucket ---> UPDATE      旧桶
     final BucketInfo bucketInfo = this.bucketAssigner.addInsert(partitionPath);
+
     final HoodieRecordLocation location;
     switch (bucketInfo.getBucketType()) {
       case INSERT:
